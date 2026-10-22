@@ -1,0 +1,518 @@
+[
+  [
+    "CosyVoice остановилась: {0}",
+    "CosyVoice stopped: {0}"
+  ],
+  [
+    "CosyVoice: {0}",
+    "CosyVoice: {0}"
+  ],
+  [
+    "Неверный ответ CosyVoice",
+    "Invalid CosyVoice response"
+  ],
+  [
+    "CosyVoice не ответила вовремя. Повторите генерацию.",
+    "CosyVoice did not respond in time. Try generation again."
+  ],
+  [
+    "В списке должно быть от 1 до 40 подач",
+    "Use 1–40 deliveries in the list"
+  ],
+  [
+    "Подача должна содержать id, название и инструкцию",
+    "A delivery needs an ID, name and instruction"
+  ],
+  [
+    "Некорректный или повторяющийся идентификатор подачи",
+    "Invalid or duplicate delivery ID"
+  ],
+  [
+    "Названия подач должны быть уникальными, от 1 до 60 символов",
+    "Delivery names must be unique and contain 1–60 characters"
+  ],
+  [
+    "Инструкция подачи: 1–600 символов, без специальных токенов",
+    "Delivery instruction: 1–600 characters without special tokens"
+  ],
+  [
+    "Проверка SHA-256: {0}",
+    "Verifying SHA-256: {0}"
+  ],
+  [
+    "Отменено пользователем; загрузку можно продолжить",
+    "Cancelled by the user; the download can be resumed"
+  ],
+  [
+    "Проверено: {0}",
+    "Verified: {0}"
+  ],
+  [
+    "Проверка целостности не пройдена. Повторите загрузку.",
+    "Integrity verification failed. Download the file again."
+  ],
+  [
+    "Подготовка инструментов сборки Python",
+    "Preparing Python build tools"
+  ],
+  [
+    "Установка отключена для этого хранилища моделей только для чтения",
+    "Component installation is disabled for this read-only model store"
+  ],
+  [
+    "Файлы генератора текста неполны. Повторите установку.",
+    "Text runtime files are incomplete. Install the runtime again."
+  ],
+  [
+    "Установка среды CosyVoice неполна",
+    "CosyVoice runtime installation is incomplete"
+  ],
+  [
+    "Установка не завершена:\n{0}\nПолный журнал: {1}",
+    "Installation did not complete:\n{0}\nFull log: {1}"
+  ],
+  [
+    "Для замены среды сначала перезапустите локальный процесс через кнопку установки в приложении.",
+    "To replace the runtime, restart the local process using the install button in the app."
+  ],
+  [
+    "Установка среды; подробности ниже",
+    "Installing runtime; details below"
+  ],
+  [
+    "Повреждённая докачка сброшена. Повторите загрузку.",
+    "The damaged partial download was reset. Try downloading again."
+  ],
+  [
+    "Загрузка: {0}",
+    "Downloading: {0}"
+  ],
+  [
+    "Неверная отметка установленной среды",
+    "Invalid runtime marker"
+  ],
+  [
+    "Сервер вернул неверный диапазон файла",
+    "The server returned an invalid file range"
+  ],
+  [
+    "Не удалось выполнить установку: {0}\nПолный журнал: {1}",
+    "Could not run installation: {0}\nFull log: {1}"
+  ],
+  [
+    "Недопустимый путь в архиве среды",
+    "Invalid path in the runtime archive"
+  ],
+  [
+    "Неверный путь в архиве CosyVoice",
+    "Invalid path in the CosyVoice archive"
+  ],
+  [
+    "Загрузка {0} · {1}",
+    "Loading {0} · {1}"
+  ],
+  [
+    "Не удалось создать новую реплику за 6 попыток. Последняя причина: {0}",
+    "Could not create a new phrase after 6 attempts. Last reason: {0}"
+  ],
+  [
+    "Подбор интонации CosyVoice к новой фразе",
+    "Choosing CosyVoice delivery for the new phrase"
+  ],
+  [
+    "Сначала установите компонент «{0}» на вкладке «Модели»",
+    "Install “{0}” in Models first"
+  ],
+  [
+    "Загрузка {0}",
+    "Loading {0}"
+  ],
+  [
+    "Загрузка CosyVoice 3 · управляемая подача",
+    "Loading CosyVoice 3 · delivery control"
+  ],
+  [
+    "CUDA недоступна. Выберите CPU или установите среду NVIDIA.",
+    "CUDA is unavailable. Select CPU or install the NVIDIA runtime."
+  ],
+  [
+    "Повтор генерации: {0}",
+    "Retrying generation: {0}"
+  ],
+  [
+    "Озвучка: {0}",
+    "Speech: {0}"
+  ],
+  [
+    "Сначала установите «llama.cpp · генератор текста» на вкладке «Модели»",
+    "Install “llama.cpp · text generator” in Models first"
+  ],
+  [
+    "Сначала установите «Среда CosyVoice» на вкладке «Модели»",
+    "Install the CosyVoice runtime in Models first"
+  ],
+  [
+    "Модель вернула пустое или повреждённое аудио",
+    "The model returned empty or invalid audio"
+  ],
+  [
+    "Неизвестное задание",
+    "Unknown job"
+  ],
+  [
+    "Некорректный объём генерации",
+    "Invalid generation count"
+  ],
+  [
+    "Неверная партия готовых фраз",
+    "Invalid ready-made phrase batch"
+  ],
+  [
+    "Неизвестная текстовая модель для партии",
+    "Unknown batch text model"
+  ],
+  [
+    "Неверный план подготовки",
+    "Invalid preparation plan"
+  ],
+  [
+    "Очередь заполнена",
+    "The queue is full"
+  ],
+  [
+    "Настройки генератора применятся после завершения текущей операции",
+    "Generator settings can change after the current operation finishes"
+  ],
+  [
+    "Неверная категория напоминания",
+    "Invalid reminder category"
+  ],
+  [
+    "Неверная готовая фраза",
+    "Invalid ready-made phrase"
+  ],
+  [
+    "Неверная запись плана подготовки",
+    "Invalid preparation slot"
+  ],
+  [
+    "Текстовая модель вернула пустой ответ",
+    "The text model returned an empty response"
+  ],
+  [
+    "Генерация текста прервалась. Повторите задание. {0}",
+    "Text generation was interrupted. Try the job again. {0}"
+  ],
+  [
+    "Модель не запустилась. Проверьте среду llama.cpp, файл модели и доступную память; для CUDA также драйвер NVIDIA. {0}",
+    "The model did not start. Check llama.cpp, the model file, available memory and the NVIDIA driver for CUDA. {0}"
+  ],
+  [
+    "Модель не запустилась. Проверьте среду llama.cpp, файл модели и доступную память. {0}",
+    "The model did not start. Check llama.cpp, the model file and available memory. {0}"
+  ],
+  [
+    "Модель текста не загрузилась за 180 секунд. {0}",
+    "The text model did not load within 180 seconds. {0}"
+  ],
+  [
+    "Ошибка генератора текста",
+    "Text generator error"
+  ],
+  [
+    "Неверный путь пресета",
+    "Invalid preset path"
+  ],
+  [
+    "Неверный пресет",
+    "Invalid preset"
+  ],
+  [
+    "У пресета другой тип",
+    "Preset has a different kind"
+  ],
+  [
+    "Несовместимый пресет",
+    "Incompatible preset"
+  ],
+  [
+    "Для голоса нужны 1–8 записей",
+    "A voice needs 1–8 references"
+  ],
+  [
+    "Неизвестный тип пресета",
+    "Unknown preset kind"
+  ],
+  [
+    "Выберите файл размером до 200 МиБ",
+    "Choose a file up to 200 MiB"
+  ],
+  [
+    "Неверное название пресета",
+    "Invalid preset name"
+  ],
+  [
+    "Экспортируйте за пределы библиотеки пресетов",
+    "Export outside the preset library"
+  ],
+  [
+    "Неверный вид отображения",
+    "Invalid visual layout"
+  ],
+  [
+    "Голосовая запись отсутствует",
+    "Voice reference is missing"
+  ],
+  [
+    "Не удалось прочитать этот аудиофайл",
+    "Cannot decode this audio file"
+  ],
+  [
+    "Запись длиннее 30 секунд",
+    "Reference is longer than 30 seconds"
+  ],
+  [
+    "Запись должна содержать 1–30 секунд речи с частотой не ниже 16 кГц",
+    "Reference must contain 1–30 seconds of speech, 16 kHz or higher"
+  ],
+  [
+    "Голосовая запись пуста или повреждена",
+    "Reference audio is empty or invalid"
+  ],
+  [
+    "Неверная расшифровка записи",
+    "Invalid reference transcript"
+  ],
+  [
+    "Описание должно содержать 1–4000 символов",
+    "Character description needs 1–4000 characters"
+  ],
+  [
+    "Архив пресета слишком велик",
+    "Preset archive is too large"
+  ],
+  [
+    "Изображение слишком велико",
+    "Visual image is too large"
+  ],
+  [
+    "Лист спрайтов Codex должен иметь размер 1536 × 1872",
+    "Codex sprite sheet must be 1536 x 1872"
+  ],
+  [
+    "Повторяющаяся запись в пресете",
+    "Duplicate preset entry"
+  ],
+  [
+    "Неожиданный файл в пресете",
+    "Unexpected preset file"
+  ],
+  [
+    "Используйте PNG, WebP, GIF или JPEG",
+    "Use PNG, WebP, GIF or JPEG"
+  ],
+  [
+    "Неизвестные настройки",
+    "Unknown settings"
+  ],
+  [
+    "Неподдерживаемый язык или обращение",
+    "Unsupported language or address form"
+  ],
+  [
+    "Неверный голосовой пресет",
+    "Invalid voice preset"
+  ],
+  [
+    "Неверные параметры персонажа",
+    "Invalid personalization"
+  ],
+  [
+    "Неизвестная модель озвучки",
+    "Unknown speech model"
+  ],
+  [
+    "Неизвестная текстовая модель",
+    "Unknown text model"
+  ],
+  [
+    "Неизвестная подача CosyVoice",
+    "Unknown CosyVoice delivery"
+  ],
+  [
+    "Количество фраз: от 1 до 100",
+    "Phrase count: 1–100"
+  ],
+  [
+    "Выберите категории",
+    "Choose categories"
+  ],
+  [
+    "Некорректное устройство",
+    "Invalid device"
+  ],
+  [
+    "Некорректные пути моделей",
+    "Invalid model paths"
+  ],
+  [
+    "Некорректная фраза",
+    "Invalid phrase"
+  ],
+  [
+    "Аудиофайл отсутствует",
+    "Audio file is missing"
+  ],
+  [
+    "Некорректное действие",
+    "Invalid action"
+  ],
+  [
+    "Некорректное значение переключателя",
+    "Invalid toggle value"
+  ],
+  [
+    "Фраза не найдена",
+    "Phrase not found"
+  ],
+  [
+    "Файл встроенной истории слишком велик",
+    "built-in history file is too large"
+  ],
+  [
+    "Неверный встроенный дневной список",
+    "invalid built-in day"
+  ],
+  [
+    "Неверная встроенная фраза",
+    "invalid built-in phrase"
+  ],
+  [
+    "Слишком большой запрос",
+    "Request is too large"
+  ],
+  [
+    "Дождитесь завершения генерации перед импортом пресета",
+    "Wait until generation finishes before importing a preset"
+  ],
+  [
+    "Дождитесь завершения генерации перед сменой пресета",
+    "Wait until generation finishes before changing a preset"
+  ],
+  [
+    "Дождитесь окончания генерации или отмените её перед удалением",
+    "Wait for generation to finish or cancel it before deleting"
+  ],
+  [
+    "Требуется подтверждение очистки библиотеки",
+    "Library clearing requires confirmation"
+  ],
+  [
+    "Дождитесь завершения очереди или отмените её перед очисткой",
+    "Wait for the queue or cancel it before clearing"
+  ],
+  [
+    "Очистка доступна после завершения очереди",
+    "Cleanup is available after the queue finishes"
+  ],
+  [
+    "Запись пока не готова",
+    "The recording is not ready yet"
+  ],
+  [
+    "CosyVoice использует только установленные локальные файлы",
+    "CosyVoice uses installed local files only"
+  ],
+  [
+    "CUDA недоступна; выберите CPU или установите среду NVIDIA",
+    "CUDA is unavailable; select CPU or install the NVIDIA runtime"
+  ],
+  [
+    "Сначала установите модель CosyVoice 3",
+    "Install the CosyVoice 3 model first"
+  ],
+  [
+    "Аудиофайл должен сохраняться внутри текущей папки данных",
+    "Audio target must be inside the current data directory"
+  ],
+  [
+    "Слишком низкая частота голосовой записи",
+    "Reference sample rate is too low"
+  ],
+  [
+    "Пустая или повреждённая речь",
+    "Empty or invalid speech"
+  ],
+  [
+    "В очереди",
+    "Queued"
+  ],
+  [
+    "Готово",
+    "Ready"
+  ],
+  [
+    "Отменено",
+    "Cancelled"
+  ],
+  [
+    "Ошибка",
+    "Error"
+  ],
+  [
+    "Фразы: {0} / {1}",
+    "Phrases: {0} / {1}"
+  ],
+  [
+    "Записи: {0} / {1}",
+    "Recordings: {0} / {1}"
+  ],
+  [
+    "Готово за {0} с · {1} с аудио",
+    "Ready in {0} s · {1} s audio"
+  ],
+  [
+    "llama.cpp · генератор текста",
+    "llama.cpp · text generator"
+  ],
+  [
+    "Среда CosyVoice · отдельно от Qwen",
+    "CosyVoice runtime · separate from Qwen"
+  ],
+  [
+    "Нужна короткая законченная реплика длиной от 8 до 320 символов.",
+    "Use a complete short phrase of 8–320 characters."
+  ],
+  [
+    "Не названо требуемое действие: {0}",
+    "The requested action is missing."
+  ],
+  [
+    "Нужна русская речь без иностранных слов и пояснений.",
+    "Russian speech is required, without foreign words or explanations."
+  ],
+  [
+    "Начало «Пора» запрещено; начни совсем иначе.",
+    "Do not start with “Пора”; use a different opening."
+  ],
+  [
+    "Мат выключен; сформулируй без мата.",
+    "Profanity is off; write without profanity."
+  ],
+  [
+    "Повторяется прежняя формулировка или начало.",
+    "The wording or opening repeats an earlier phrase."
+  ],
+  [
+    "Установка компонентов… Подробности — в журнале установки.",
+    "Installing components… Details are in the installation log."
+  ],
+  [
+    "Не найдено",
+    "Not found"
+  ],
+  [
+    "Доступ не разрешён",
+    "Unauthorized"
+  ]
+]

@@ -1,0 +1,9 @@
+{
+ "id": "kavychka-neutral-v2",
+ "public_default": true,
+ "name": "Kavychka neutral",
+ "file": "default-en.wav",
+ "language": "English",
+ "transcript": "Take a little time for yourself. Step away from the screen, stretch your shoulders, and take a calm breath. Your work can wait for a moment.",
+ "note": "Synthetic neutral reference. Personal voice profiles are stored in the user's data directory."
+}
