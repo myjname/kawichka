@@ -38,6 +38,8 @@ def messages(category, settings, variant=None, followup=False):
         instruction += "Mild friendly profanity about work is allowed, no insults. " if settings["swear"] else "No profanity or insults. "
         instruction += "Character description:\n" + description
         task = SITUATIONS_EN[category]
+        if settings.get("user_name"):
+            task += " The user's preferred name is " + settings["user_name"] + ". You may use it naturally; using the name is optional."
         if followup:
             task += " This is a follow-up to an ignored reminder: use playful dry teasing, never threats, blame or claims you can control the computer. Use a fresh opening and image."
         return [{"role": "system", "content": instruction}, {"role": "user", "content": task}]

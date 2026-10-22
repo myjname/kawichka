@@ -12,6 +12,16 @@ from kavychka_local.engine import Engine
 
 
 class CharacterTests(unittest.TestCase):
+    def test_preferred_name_reaches_both_reminder_languages(self):
+        for language in ("ru", "en"):
+            settings = {"character_description": "A dry-witted companion", "swear": False,
+                        "speech_language": language, "user_name": "Mira"}
+            with self.subTest(language=language):
+                prompt = messages("break", settings, followup=True)
+                self.assertIn("Mira", prompt[1]["content"])
+                self.assertNotIn("Mira", prompt[0]["content"])
+                self.assertIn("A dry-witted companion", prompt[0]["content"])
+
     def test_retry_explains_rejection_and_shows_hidden_historical_conflict(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "work") as directory:
             store = Store(directory)
