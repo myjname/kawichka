@@ -4,6 +4,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import io
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +16,23 @@ from kavychka_local.downloads import Components
 
 
 class TextModelTests(unittest.TestCase):
+    def test_private_key_uses_ascii_relative_name_inside_unicode_job_directory(self):
+        from kavychka_local.llama import Llama
+        with tempfile.TemporaryDirectory(dir=ROOT / "work", prefix="папка с пробелом-") as directory:
+            process=mock.Mock();process.poll.return_value=None
+            http=mock.Mock();http.open.return_value=io.BytesIO(b'{"status":"ok"}')
+            with mock.patch('kavychka_local.llama.subprocess.Popen',return_value=process) as popen, mock.patch('kavychka_local.llama.WindowsJob'), mock.patch('kavychka_local.llama.urllib.request.build_opener',return_value=http):
+                llama=Llama(ROOT/'work/fake.exe',ROOT/'work/fake.gguf',directory,'cpu',threading.Event(),lambda *_:None)
+                try:
+                    args=popen.call_args.args[0]
+                    key=args[args.index('--api-key-file')+1]
+                    self.assertTrue(key.isascii())
+                    self.assertEqual(Path(key).name,key)
+                    self.assertEqual(Path(directory),popen.call_args.kwargs['cwd'])
+                    self.assertNotIn(llama.token,args)
+                    self.assertFalse(list(Path(directory).glob('*.key')))
+                finally:
+                    llama.close()
     def test_quality_and_runtime_selections_are_independent_and_persistent(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "work") as directory:
             store = Store(directory)

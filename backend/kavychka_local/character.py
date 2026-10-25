@@ -9,12 +9,12 @@ DEFAULT_DESCRIPTION = PROFILE["description"]
 MAX_DESCRIPTION = PROFILE["max_length"]
 SITUATIONS = {
     "break": "Предложи короткий перерыв: встать и отойти от компьютера.",
-    "breakfast": "Предложи прерваться на завтрак.",
-    "lunch": "Предложи прерваться на обед.",
-    "dinner": "Предложи поужинать.",
+    "breakfast": "Предложи прерваться на завтрак. В произносимой реплике явно назови завтрак или предложи позавтракать.",
+    "lunch": "Предложи прерваться на обед. В произносимой реплике явно назови обед или предложи пообедать.",
+    "dinner": "Предложи поужинать. В произносимой реплике явно назови ужин или предложи поужинать.",
     "exercise": "Предложи физическую разминку: встать и размять мышцы.",
 }
-SITUATIONS_EN = {"break": "Ask the user to stand up and take a short break away from the computer.", "breakfast": "Remind the user to have breakfast.", "lunch": "Remind the user to take a lunch break.", "dinner": "Remind the user to have dinner.", "exercise": "Ask the user to stand up and stretch their muscles."}
+SITUATIONS_EN = {"break": "Ask the user to stand up and take a short break away from the computer.", "breakfast": "Remind the user to have breakfast. Name breakfast explicitly in the spoken text.", "lunch": "Remind the user to take a lunch break. Name lunch explicitly in the spoken text.", "dinner": "Remind the user to have dinner. Name dinner or supper explicitly in the spoken text.", "exercise": "Ask the user to stand up and stretch their muscles."}
 APPROACHES = (
     "Начни с короткого наблюдения, затем предложи действие.",
     "Скажи прямо, одним коротким предложением.",
@@ -22,6 +22,14 @@ APPROACHES = (
     "Предложи небольшую дружескую сделку в характере персонажа.",
     "Используй один простой образ из повседневной жизни, затем предложи действие.",
     "Скажи тепло и просто, без вопроса и без метафор.",
+)
+APPROACHES_EN = (
+    "Start with a brief neutral observation, then suggest the action.",
+    "Make a direct suggestion in one short sentence.",
+    "Start with a short question, then suggest the action.",
+    "Offer a small friendly bargain in the character's style.",
+    "Use one simple everyday image, then suggest the action.",
+    "Speak warmly and plainly, without a question or a metaphor.",
 )
 
 
@@ -37,7 +45,8 @@ def messages(category, settings, variant=None, followup=False):
         instruction = "Write exactly one short natural English reminder, 1–3 sentences, up to 35 words. Return only spoken text, no heading, stage directions, quotes or explanations. Do not invent facts about the user. Keep the requested action explicit. "
         instruction += "Mild friendly profanity about work is allowed, no insults. " if settings["swear"] else "No profanity or insults. "
         instruction += "Character description:\n" + description
-        task = SITUATIONS_EN[category]
+        approach = secrets.choice(APPROACHES_EN) if variant is None else APPROACHES_EN[variant % len(APPROACHES_EN)]
+        task = SITUATIONS_EN[category] + " " + approach
         if settings.get("user_name"):
             task += " The user's preferred name is " + settings["user_name"] + ". You may use it naturally; using the name is optional."
         if followup:
@@ -48,6 +57,7 @@ def messages(category, settings, variant=None, followup=False):
         "Верни только произносимую реплику: без заголовка, пояснений, описаний действий и сценических ремарок. "
         "Сохрани характер из описания ниже. Не пересказывай анкету и не копируй примеры. "
         "Напоминание должно явно предлагать нужное действие. Пиши естественно и грамотно. "
+        "Не выдавай догадки о действиях или самочувствии пользователя за известный факт. "
         + ("Допустим дружеский мат про работу, без оскорблений человека. " if settings["swear"]
            else "Строго без мата и грубых слов, даже если они есть в описании. ")
         + "\nОписание персонажа:\n" + description
@@ -57,7 +67,7 @@ def messages(category, settings, variant=None, followup=False):
             + approach + " Род говорящего сохраняй по описанию персонажа. "
             "Не начинай со слова «Пора» или «Ну, пора». Придумай другое естественное начало.")
     address = settings.get("address_form", "neutral")
-    user += {"neutral": " Не используй формы, требующие знания пола адресата.", "female": " Адресат — женщина: ты устала, ты поела.", "male": " Адресат — мужчина: ты устал, ты поел."}[address]
+    user += {"neutral": " Не используй формы, требующие знания пола адресата.", "female": " Адресат — женщина; используй женский род, если он нужен.", "male": " Адресат — мужчина; используй мужской род, если он нужен."}[address]
     if settings.get("user_name"):
         user += " Имя адресата: " + settings["user_name"] + ". Можно обойтись без имени."
     if followup:

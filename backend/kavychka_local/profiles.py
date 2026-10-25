@@ -11,11 +11,29 @@ from pathlib import Path, PureWindowsPath
 
 KINDS = ("voice", "character", "visual")
 MAX_PACKAGE = 200 * 1024 * 1024
+MAX_MANIFEST = 150_000
+
+
+def read_json(path):
+    with Path(path).open("rb") as source:
+        raw = source.read(MAX_MANIFEST + 1)
+    if len(raw) > MAX_MANIFEST:
+        raise ValueError("Preset manifest exceeds 150 KB")
+    item = json.loads(raw.decode("utf-8-sig"))
+    if not isinstance(item, dict):
+        raise ValueError("Preset manifest must be an object")
+    return item
 
 
 def inside(root, name):
     if (not isinstance(name, str) or not name or Path(name).is_absolute()
-            or PureWindowsPath(name).drive or ".." in name.replace("\\", "/").split("/")):
+            or PureWindowsPath(name).drive or any(c in name for c in '\\:<>"|?*')
+            or any(ord(c) < 32 or ord(c) == 127 for c in name)):
+        raise ValueError("Invalid preset path")
+    reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    reserved.update(prefix + str(n) for prefix in ("COM", "LPT") for n in range(1, 10))
+    if any(not part or part in (".", "..") or part.endswith((".", " "))
+           or part.split(".")[0].upper() in reserved for part in name.split("/")):
         raise ValueError("Invalid preset path")
     result = (root / name).resolve()
     if root.resolve() not in result.parents:
@@ -33,7 +51,7 @@ class Profiles:
         result = []
         for path in sorted(self.root.glob("*/preset.json")):
             try:
-                item = json.loads(path.read_text(encoding="utf-8-sig"))
+                item = read_json(path)
                 if item["kind"] in KINDS:
                     result.append({"id": path.parent.name, "name": item["name"], "kind": item["kind"]})
             except (OSError, ValueError, KeyError):
@@ -44,7 +62,7 @@ class Profiles:
         if kind not in KINDS or not isinstance(ident, str) or not ident.isalnum():
             raise ValueError("Invalid preset")
         folder = inside(self.root, ident)
-        item = self.clean(json.loads((folder / "preset.json").read_text(encoding="utf-8-sig")), kind)
+        item = self.clean(read_json(folder / "preset.json"), kind)
         if item.get("kind") != kind:
             raise ValueError("Preset has a different kind")
         return folder, item
@@ -71,7 +89,7 @@ class Profiles:
     def voice(self, ident):
         if not ident:
             folder = self.app / "assets/voice"
-            item = json.loads((folder / "profile.json").read_text(encoding="utf-8-sig"))
+            item = read_json(folder / "profile.json")
             refs = item["references"] if "references" in item else [{"file": item["file"], "transcript": item.get("transcript", "")}]
         else:
             folder, item = self.get(ident, "voice")
@@ -101,6 +119,7 @@ class Profiles:
                     if len(files) > 150 or sum(f.file_size for f in files) > MAX_PACKAGE:
                         raise ValueError("Preset archive is too large")
                     seen = set()
+                    actual_total = 0
                     for entry in files:
                         inside(stage, entry.filename.rstrip("/"))
                         if entry.is_dir():
@@ -111,10 +130,24 @@ class Profiles:
                         path = inside(stage, entry.filename)
                         if path.suffix.casefold() not in (".json", ".flac", ".wav", ".png", ".webp", ".gif", ".jpg", ".jpeg"):
                             raise ValueError("Unexpected preset file")
+                        bound = min(entry.file_size, MAX_MANIFEST if entry.filename == "preset.json" else MAX_PACKAGE)
+                        if entry.file_size > bound:
+                            raise ValueError("Preset manifest exceeds 150 KB")
                         path.parent.mkdir(parents=True, exist_ok=True)
                         with archive.open(entry) as src, path.open("wb") as dst:
-                            shutil.copyfileobj(src, dst)
-                item = json.loads((stage / "preset.json").read_text(encoding="utf-8-sig"))
+                            copied = 0
+                            while True:
+                                chunk = src.read(min(65536, bound - copied + 1))
+                                if not chunk:
+                                    break
+                                copied += len(chunk)
+                                actual_total += len(chunk)
+                                if copied > bound or actual_total > MAX_PACKAGE:
+                                    raise ValueError("Preset expanded beyond its declared size or limit")
+                                dst.write(chunk)
+                            if copied != entry.file_size:
+                                raise ValueError("Preset entry size mismatch")
+                item = read_json(stage / "preset.json")
                 item = self.clean(item, kind)
                 if kind == "voice":
                     for index, ref in enumerate(item["references"]):
@@ -127,7 +160,11 @@ class Profiles:
                     self.normalize_audio(source, stage / "reference.flac")
                     item["references"] = [{"file": "reference.flac", "transcript": transcript[:4000]}]
                 elif kind == "character":
-                    text = source.read_text(encoding="utf-8-sig").strip()
+                    with source.open("rb") as file:
+                        raw = file.read(16_004)
+                    if len(raw) > 16_003:
+                        raise ValueError("Character description needs 1–4000 characters")
+                    text = raw.decode("utf-8-sig").strip()
                     if not 1 <= len(text) <= 4000:
                         raise ValueError("Character description needs 1–4000 characters")
                     item["description"] = text

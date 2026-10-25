@@ -5,11 +5,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
-from kavychka_local.diversity import too_similar
+from kavychka_local.diversity import too_similar, opening_key, opening_pressure, opening_hint
 from kavychka_local.store import Store
 
 
 class DiversityTests(unittest.TestCase):
+    def test_opening_preference_groups_address_inflections_but_not_unrelated_words(self):
+        for phrase in ("Ты всё ещё работаешь", "Твой обед ждёт", "Твои плечи", "Твоё место", "You're still working", "Your lunch"):
+            self.assertEqual(opening_key(phrase), "@address")
+        self.assertNotEqual(opening_key("Творческий перерыв"), "@address")
+        self.assertNotEqual(opening_key("Yourself"), "@address")
+        self.assertEqual(opening_pressure("Твои задачи подождут", ["Ты здесь", "Твой обед", "Твоя зарядка"]), 1)
+        self.assertEqual(opening_pressure("Встань на минуту", ["Ты здесь", "Твой обед", "Твоя зарядка"]), 0)
+        self.assertEqual(opening_pressure("Твои задачи", ["Новое начало"] * 8 + ["Ты здесь"] * 20), 0)
+        self.assertIn("ты / твой / твои", opening_hint(["Ты здесь", "Твой обед", "Твоя зарядка"]))
+        self.assertIn("you / your", opening_hint(["You work", "Your lunch", "You're here"], "en"))
+
     def test_meal_substitution_is_a_duplicate(self):
         for a, b in [
             ("Давай пообедаем. Твои задачи подождут.", "Давай поужинаем. Твои задачи подождут."),

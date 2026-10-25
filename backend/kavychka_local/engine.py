@@ -9,7 +9,7 @@ from .downloads import checkpoint
 from .store import cache_key
 from .character import APPROACHES, messages as character_messages, starts_with_pora
 from .delivery import fixed, select, options, catalog
-from .diversity import too_similar, same_opening, normalize
+from .diversity import too_similar, same_opening, normalize, opening_pressure, opening_hint
 from .profiles import Profiles
 
 SWEAR = re.compile(r"(?iu)(?:\b(?:бля\w*|хуй\w*|хуя\w*|хуе\w*|хуё\w*|нах\w*|нихуя\w*|пизд\w*|еб\w*|ёб\w*|заеб\w*|заёб\w*|выеб\w*|выёб\w*|сука\w*|суч\w*|мудак\w*|мудил\w*|долбо\w*|охуе\w*|охуё\w*))")
@@ -68,7 +68,7 @@ class Engine:
                 raise ValueError("Сначала установите «Среда CosyVoice» на вкладке «Модели»")
             progress("Загрузка CosyVoice 3 · управляемая подача", 0, 0)
             self.model = Cosy(self.app_root, self.store.root, self.components.path(key),
-                              self.components.voice_device(), event, runtime=self.components.root)
+                              self.components.voice_device(), event, runtime=self.components.cosy_root() if hasattr(self.components, "cosy_root") else self.components.root)
             self.loaded = key
             return
         import torch
@@ -103,31 +103,44 @@ class Engine:
                 return event.is_set()
         return StoppingCriteriaList([Stop()])
 
-    def text(self, category, event, progress, model=None, followup=False):
+    def text(self, category, event, progress, model=None, followup=False, style_retries=None):
         settings = self.store.settings()
+        if style_retries is None:
+            style_retries = not settings.get("runtime", False)
         self.load(model or settings["text_model"], event, progress)
         variant = secrets.randbelow(len(APPROACHES))
         rejected = []
+        reserve = None
         for attempt in range(6):
             checkpoint(event)
             messages = character_messages(category, settings, variant + attempt, followup)
-            recent = self.store.recent(6)
+            recent = self.store.recent(8)
+            english = settings["speech_language"] == "en"
             if recent:
-                messages[-1]["content"] = ("Уже произнесённые реплики, не образцы для копирования:\n" + "\n".join(recent)
-                                           + "\nНе повторяй их начала, обороты и сделки. Ниже — новое задание; сохрани именно его тему.\n\n"
+                messages[-1]["content"] = (("Previously spoken lines, not examples to copy:\n" if english else "Уже произнесённые реплики, не образцы для копирования:\n") + "\n".join(recent)
+                                           + ("\nDo not reuse their openings, turns or bargains. Follow the new task below.\n\n" if english else "\nНе повторяй их начала, обороты и сделки. Ниже — новое задание; сохрани именно его тему.\n\n")
                                            + messages[-1]["content"])
+            hint = opening_hint(recent, settings["speech_language"])
+            if hint:
+                messages[-1]["content"] += "\n\n" + hint
             if rejected:
-                messages[-1]["content"] += "\n\nПредыдущие неудачные варианты этого задания:\n" + "\n".join(rejected[-3:]) + "\nИсправь указанную причину. Измени начало и образ, сохрани нужное действие. Верни только новую реплику."
-            if self.components.manifest["models"][self.loaded].get("format") == "gguf":
-                text = self.model.generate(messages, event)
-            else:
-                import torch
-                prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
-                inputs = self.tokenizer([prompt], return_tensors="pt").to(self.device)
-                with torch.inference_mode():
-                    result = self.model.generate(**inputs, max_new_tokens=140, do_sample=True, temperature=0.7,
-                                                 top_p=0.8, repetition_penalty=1.05, stopping_criteria=self.stopping(event))
-                text = self.tokenizer.decode(result[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+                messages[-1]["content"] += ("\n\nPrevious rejected candidates for this task:\n" if english else "\n\nПредыдущие неудачные варианты этого задания:\n") + "\n".join(rejected[-3:]) + ("\nCorrect the stated issue, change the opening and image, keep the requested action. Return only the new spoken line." if english else "\nИсправь указанную причину. Измени начало и образ, сохрани нужное действие. Верни только новую реплику.")
+            try:
+                if self.components.manifest["models"][self.loaded].get("format") == "gguf":
+                    text = self.model.generate(messages, event)
+                else:
+                    import torch
+                    prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+                    inputs = self.tokenizer([prompt], return_tensors="pt").to(self.device)
+                    with torch.inference_mode():
+                        result = self.model.generate(**inputs, max_new_tokens=140, do_sample=True, temperature=0.7,
+                                                     top_p=0.8, repetition_penalty=1.05, stopping_criteria=self.stopping(event))
+                    text = self.tokenizer.decode(result[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+            except (OSError, RuntimeError, ValueError):
+                checkpoint(event)
+                if reserve is None:
+                    raise
+                return reserve[1]
             checkpoint(event)
             text = text.strip().strip('"«»')
             text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
@@ -150,9 +163,23 @@ class Engine:
                 if conflict:
                     reason += " Уже было: «" + conflict + "». Нужна другая конструкция, а не замена отдельных слов."
             if reason is None:
-                return text
+                pressure = opening_pressure(text, recent)
+                # Runtime keeps the history-aware prompt but must not wait for
+                # extra model calls once a valid unique line is available.
+                if not pressure or not style_retries:
+                    return text
+                # Keep a valid unique line if all six attempts only miss the
+                # stylistic preference. Hard validation/duplicate checks above
+                # can never put an invalid line into this reserve.
+                if reserve is None or pressure < reserve[0]:
+                    reserve = (pressure, text)
+                reason = ("Choose a different opening; this word family is overused." if english
+                          else "Выбери другое начало: это слово или семейство обращений встречается слишком часто.")
             rejected.append("«" + text + "» — " + reason)
             progress("Повтор генерации: " + reason, attempt + 1, 6)
+        checkpoint(event)
+        if reserve is not None:
+            return reserve[1]
         raise ValueError("Не удалось создать новую реплику за 6 попыток. Последняя причина: " + reason)
 
     def direction(self, text, category, event, progress, text_model=None, use_text_model=True):

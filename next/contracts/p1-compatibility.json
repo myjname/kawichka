@@ -1,0 +1,164 @@
+{
+  "contract": 2,
+  "app_release": "0.1.1",
+  "cargo_workspace": "0.1.0",
+  "formats": {
+    "legacy_json": [
+      0,
+      1,
+      2
+    ],
+    "legacy_sqlite": [
+      0,
+      1,
+      2
+    ],
+    "snapshot": 1,
+    "snapshot_sqlite": 3,
+    "working_sqlite": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "preferences": 1,
+    "state": 1,
+    "legacy_checkpoint": 1,
+    "preset": 1,
+    "ipc": 1,
+    "manifest": 1,
+    "current": 1,
+    "install_journal": 1,
+    "delivery_journal": 1
+  },
+  "components_sha256": "97fcf2628064c2e6b57195792d49f9630d6e4003786f2b7d6b053f3f188a35cd",
+  "runtimes": {
+    "python": "3.12.10-amd64",
+    "llama_cpu": "b11719-cpu-x64-v1",
+    "llama_cuda": "b11719-cuda13.4-safe-v1",
+    "cosy": "cosy-074ca6dc-matcha-dd9105b3-whisper20231117-v2",
+    "torch_cpu": "2.9.1+cpu-cp312",
+    "torch_cuda": "2.9.1+cu128-cp312"
+  },
+  "models": {
+    "tts-0.6b": {
+      "format": "transformers",
+      "revision": "5d83992436eae1d760afd27aff78a71d676296fc",
+      "bytes": 2516100892
+    },
+    "tts-1.7b": {
+      "format": "transformers",
+      "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+      "bytes": 4544170364
+    },
+    "text-1.7b": {
+      "format": "transformers",
+      "revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+      "bytes": 4079423234
+    },
+    "text-gemma4-12b": {
+      "format": "gguf",
+      "revision": "29d097773436b69ff9feafd636ab4cf873786537",
+      "bytes": 6975879296
+    },
+    "text-gemma4-e4b": {
+      "format": "gguf",
+      "revision": "4b4a2c1d584be7264f87aac328a1bc739ce81b6c",
+      "bytes": 5154941280
+    },
+    "text-qwen35-4b": {
+      "format": "gguf",
+      "revision": "4168f45a16a1290d65a4ec0fa312ae917a4c15d6",
+      "bytes": 3013027808
+    },
+    "text-qwen35-9b": {
+      "format": "gguf",
+      "revision": "182be2fd6c7bc44887d88a91cb03ff009cc9f549",
+      "bytes": 6169341984
+    },
+    "text-ministral3-8b": {
+      "format": "gguf",
+      "revision": "ad82bf81321f4b22de70014ecd5135730115f6a8",
+      "bytes": 5198387456
+    },
+    "text-qvikhr3-8b": {
+      "format": "gguf",
+      "revision": "0014437899c19be34ec84d532912ea2dc5347489",
+      "bytes": 5027783552
+    },
+    "text-saiga-llama3-8b": {
+      "format": "gguf",
+      "revision": "d9e7e9e52b9268a6764bd3ba73756684c7e4fb8e",
+      "bytes": 4920734016
+    },
+    "tts-cosyvoice3": {
+      "format": "cosyvoice3",
+      "revision": "29e01c4e8d000f4bcd70751be16fa94bf3d85a18",
+      "bytes": 5427041085
+    }
+  },
+  "legacy_columns": {
+    "settings": [
+      "key",
+      "value"
+    ],
+    "phrases": [
+      "id",
+      "text",
+      "normalized",
+      "category",
+      "model",
+      "profile",
+      "cache_key",
+      "audio_path",
+      "approved",
+      "day",
+      "used_at",
+      "created_at",
+      "deleted",
+      "seed",
+      "voice_style",
+      "voice_instruction",
+      "voice_reference",
+      "followup",
+      "language",
+      "rejected"
+    ],
+    "plans": [
+      "day",
+      "target",
+      "status"
+    ],
+    "voice_rotation": [
+      "id",
+      "next_index"
+    ],
+    "preparation": [
+      "slot",
+      "day",
+      "category",
+      "followup",
+      "phrase_id",
+      "state",
+      "attempts",
+      "retry_at",
+      "error"
+    ]
+  },
+  "qualification": {
+    "windows_build_lines": [
+      26200,
+      26300
+    ],
+    "architecture": "x64",
+    "physical_8gb_laptop_tested": false,
+    "all_model_device_combinations_tested": false,
+    "profiles": [
+      "W1",
+      "W2",
+      "W3",
+      "W4",
+      "W5"
+    ]
+  }
+}

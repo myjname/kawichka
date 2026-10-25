@@ -1,0 +1,120 @@
+name: Rust Next verification
+on:
+  push:
+    tags: ['next-v*']
+  pull_request:
+    paths: ['next/**', 'backend/**', 'assets/**', 'tests/test_*.py', 'scripts/check-p1-contract.py', 'docs/RUST-SLINT-P1-CONTRACT.md', '.github/workflows/next-windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      CARGO_HOME: ${{ runner.temp }}/kavychka-cargo
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Verify public sources and stateless worker
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path work -Force | Out-Null
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { ./next/Get-release-version.ps1 -Tag $env:GITHUB_REF_NAME | Out-Null }
+          python -B scripts/check-public.py
+          if ($LASTEXITCODE -ne 0) { throw 'Source check failed' }
+          python -B scripts/check-p1-contract.py
+          if ($LASTEXITCODE -ne 0) { throw 'P1 contract check failed' }
+          python -B -m unittest discover -s tests -p test_next_worker.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Worker check failed' }
+          foreach ($suite in @('test_character.py','test_diversity.py','test_profiles.py','test_next_release.py')) {
+            python -B -m unittest discover -s tests -p $suite -v
+            if ($LASTEXITCODE -ne 0) { throw "Regression failed: $suite" }
+          }
+      - name: Verify Rust workspace and package
+        shell: pwsh
+        env:
+          CARGO_INCREMENTAL: '0'
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { throw 'Rust setup failed' }
+          rustup override set 1.99.0
+          cargo fmt --manifest-path next/Cargo.toml --all -- --check
+          if ($LASTEXITCODE -ne 0) { throw 'Format check failed' }
+          cargo test --manifest-path next/Cargo.toml --workspace --locked
+          if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed' }
+          cargo clippy --manifest-path next/Cargo.toml --workspace --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { throw 'Clippy failed' }
+          ./next/Test-notices.ps1
+          if (-not $?) { throw 'Notice collector checks failed' }
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            ./next/Get-release-version.ps1 -Tag $env:GITHUB_REF_NAME
+          } else {
+            [regex]::Match((Get-Content next/Cargo.toml -Raw),'(?m)^version = "([0-9]+\.[0-9]+\.[0-9]+)"').Groups[1].Value
+          }
+          ./next/Build-package.ps1 -Version $version
+          if ($LASTEXITCODE -ne 0) { throw 'Package failed' }
+          $setup=Join-Path $PWD "outputs/next/$version/Kavychka-Next-Setup.exe"
+          $portable=Join-Path $PWD "outputs/next/$version/Kavychka-Next-Portable.zip"
+          ./next/Build-portable.ps1 -Setup $setup -Output $portable
+          if ($LASTEXITCODE -ne 0) { throw 'Portable failed' }
+          python -B next/tools/verify_release.py --tag "next-v$version" --setup $setup --portable $portable --output "outputs/next/$version/release-evidence.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Release handoff failed' }
+      - name: Retain reviewable candidate (no release publication)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kavychka-next-windows-candidate
+          path: outputs/next/
+          if-no-files-found: error
+          retention-days: 7
+  draft-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/next-v')
+    needs: verify
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Download and recheck the verified run artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh run download $env:GITHUB_RUN_ID --name kavychka-next-windows-candidate --dir release
+          if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed' }
+          $version=./next/Get-release-version.ps1 -Tag $env:RELEASE_TAG
+          python -B next/tools/verify_release.py --tag $env:RELEASE_TAG --setup "release/$version/Kavychka-Next-Setup.exe" --portable "release/$version/Kavychka-Next-Portable.zip" --output "release/$version/release-recheck.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Downloaded artifact differs or is invalid' }
+      - name: Create a draft for final acceptance (not the public update feed)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version=./next/Get-release-version.ps1 -Tag $env:RELEASE_TAG
+          gh release create $env:RELEASE_TAG "release/$version/Kavychka-Next-Setup.exe" "release/$version/Kavychka-Next-Portable.zip" "release/$version/SHA256SUMS.txt" --verify-tag --draft --title "Kavychka Next $version" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed' }
+          $remoteJson=gh api "repos/$env:GH_REPO/releases/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read draft asset metadata' }
+          $remote=$remoteJson | ConvertFrom-Json
+          if (!$remote.draft -or $remote.prerelease -or $remote.tag_name -cne $env:RELEASE_TAG) { throw 'Unexpected draft release identity' }
+          foreach($name in @('Kavychka-Next-Setup.exe','Kavychka-Next-Portable.zip')) {
+            $asset=@($remote.assets | Where-Object name -CEQ $name)
+            $local=Get-Item -LiteralPath "release/$version/$name"
+            $expected='sha256:'+(Get-FileHash -LiteralPath $local.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($asset.Count -ne 1 -or $asset[0].size -ne $local.Length -or $asset[0].digest -cne $expected) { throw 'GitHub asset SHA/size was not confirmed; keep draft unpublished' }
+          }

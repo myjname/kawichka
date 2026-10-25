@@ -12,6 +12,7 @@ using System.Windows.Forms;
 public partial class MainForm {
  PetForm pet;
  PetMessage petMessage;
+ ContextMenuStrip petMenu;
  NativeActivity activity;
  StudioThemeWatcher themeWatcher;
  DesktopPowerWatcher powerWatcher;
@@ -123,7 +124,13 @@ public partial class MainForm {
  }
  void ApplyVisual(){if(pet==null)return;pet.ClientSize=new Size(settings.PetSize,(int)(settings.PetSize*170/150.0));try{pet.SetVisual(PersonalPresets.FilePath(Folder,settings.VisualFile,"visual"),settings.VisualFile.Length==0?"auto":Convert.ToString(PersonalPresets.Read(Folder,settings.VisualFile,"visual")["layout"]));}catch(Exception e){LogDesktop(e);pet.SetVisual("");}pet.ClampToScreen();}
  void ShowPetMenu(){
-  var menu=new ContextMenuStrip();StudioColors.PrepareMenu(menu);
+  if(IsDisposed||Disposing||pet==null||pet.IsDisposed)return;
+  if(petMenu!=null&&!petMenu.IsDisposed&&petMenu.Visible)return;
+  if(petMenu==null||petMenu.IsDisposed){
+   petMenu=new ContextMenuStrip();StudioColors.PrepareMenu(petMenu);
+   var ownedMenu=petMenu;Disposed+=delegate{ownedMenu.Dispose();};
+  }
+  var menu=petMenu;var previous=menu.Items.Cast<ToolStripItem>().ToArray();menu.Items.Clear();foreach(var item in previous)item.Dispose();
   menu.Items.Add(L.T("Настройки","Settings"),null,delegate{OpenSimpleSettings();});
   menu.Items.Add(L.T("Фразы на сегодня","Today's phrases"),null,delegate{OpenDayLibrary();});
   menu.Items.Add(L.T("Я позавтракала / позавтракал","I have had breakfast"),null,delegate{DesktopBreakfast();});
@@ -138,7 +145,9 @@ public partial class MainForm {
   menu.Items.Add(availableRelease==null?L.T("Проверить обновления","Check for updates"):L.T("Обновить до ","Update to ")+availableRelease.Version,null,async delegate{await CheckDesktopUpdates(true);});
   menu.Items.Add(L.T("Расширенные настройки","Advanced settings"),null,delegate{Restore();});
   menu.Items.Add(L.T("Выход","Exit"),null,delegate{exiting=true;Close();});
-  menu.Closed+=delegate{menu.Dispose();};menu.Show(pet,new Point(0,pet.Height));
+  // ToolStripDropDown still uses its handle after Closed has fired. Keep the
+  // menu alive between clicks; its owning form releases it on disposal.
+  menu.Show(pet,new Point(0,pet.Height));
  }
  void SetDesktopPause(int minutes){settings.Paused=true;settings.PauseUntilUtc=minutes<0?(DateTime?)null:DateTime.UtcNow.AddMinutes(minutes);cycle=null;messagePending=false;manualMessage=false;StopAudio();if(petMessage!=null)petMessage.Hide();Save();PersistDesktopReminder(DateTime.UtcNow);}
  void DesktopBreakfast(){if(!settings.ExerciseEnabled){OpenSimpleSettings();return;}settings.ExerciseUtc=DateTime.UtcNow.AddMinutes(settings.ExerciseAfter);Save();UpdateLabels();preparationStatus=L.T("Разминка в ","Stretch at ")+RitualSchedule.Local(settings,settings.ExerciseUtc.Value).ToString("HH:mm");if(pet!=null){petHappyUntilUtc=DateTime.UtcNow.AddSeconds(4);pet.Happy=true;pet.Invalidate();}}

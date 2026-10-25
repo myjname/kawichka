@@ -1,0 +1,98 @@
+import { VerticalBox, HorizontalBox, Button, ComboBox, SpinBox, CheckBox, LineEdit, ListView, Palette } from "std-widgets.slint";
+
+export global Theme {
+    in-out property <bool> dark: false;
+    changed dark => { Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light; }
+    out property <color> background: dark ? #191b24 : #f8f9fc;
+    out property <color> ink: dark ? #eff0f9 : #23283d;
+    out property <color> muted: dark ? #a9afc5 : #70768b;
+}
+
+export component PetWindow inherits Window {
+    title: "Кавычка · Slint · маскот";
+    width: 150px; height: 170px;
+    no-frame: true; always-on-top: true; background: transparent;
+    in property <float> bounce: 0;
+    callback open-settings();
+    Image { x: 0px; y: root.bounce * 1px; width: 150px; height: 170px; source: @image-url("../../common/mascot.png"); }
+    TouchArea { clicked => { root.open-settings(); } }
+}
+
+export component BubbleWindow inherits Window {
+    title: "Кавычка · Slint · сообщение";
+    width: 400px; height: 200px; no-frame: true; always-on-top: true;
+    background: Theme.background; default-font-family: "Segoe UI"; default-font-size: 14px;
+    callback confirmed();
+    VerticalBox {
+        padding: 24px; spacing: 14px;
+        Text { text: "Кавычка"; font-size: 18px; color: Theme.ink; }
+        Text { text: "Стул сегодня уже поработал. Встань и дай ему короткий отпуск."; wrap: word-wrap; color: Theme.ink; }
+        HorizontalBox {
+            Button { text: "Я встала / встал"; clicked => { root.confirmed(); } }
+            Button { text: "Стоп голос"; }
+        }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: "Кавычка · Slint · прототип";
+    preferred-width: 720px; preferred-height: 640px; min-width: 640px; min-height: 520px;
+    background: Theme.background; default-font-family: "Segoe UI"; default-font-size: 14px;
+    in-out property <int> page: 0;
+    in-out property <int> theme-index: 0;
+    in property <int> progress: 0;
+    in property <[string]> rows;
+    callback show-message(); callback start-load(); callback stop-load(); callback save(); callback theme-changed(int); callback quit();
+    changed theme-index => { root.theme-changed(root.theme-index); }
+    VerticalBox {
+        padding: 0px; spacing: 0px;
+        HorizontalBox {
+            padding: 8px; spacing: 8px;
+            Button { text: "Обзор"; clicked => { root.page=0; } }
+            Button { text: "Расписание"; clicked => { root.page=1; } }
+            Button { text: "Библиотека"; clicked => { root.page=2; } }
+            Button { text: "Модели"; clicked => { root.page=3; } }
+        }
+        if root.page == 0: VerticalBox {
+            padding: 24px; spacing: 14px;
+            Text { text: "Кавычка"; font-size: 28px; color: Theme.ink; }
+            Text { text: "Маскот и напоминания. Изолированный прототип оболочки."; color: Theme.ink; }
+            Text { text: "Ближайшее напоминание · через 5 минут"; font-size: 18px; color: Theme.ink; }
+            Button { text: "Показать сообщение"; clicked => { root.show-message(); } }
+            Button { text: "Запустить фоновую нагрузку"; clicked => { root.start-load(); } }
+            Button { text: "Остановить нагрузку"; clicked => { root.stop-load(); } }
+            Text { text: "Готово · модели не используются · " + root.progress + "%"; color: Theme.muted; }
+            Button { text: "Закрыть прототип"; clicked => { root.quit(); } }
+            Rectangle { vertical-stretch: 1; background: transparent; }
+        }
+        if root.page == 1: VerticalBox {
+            padding: 24px; spacing: 14px;
+            Text { text: "Ритм дня"; font-size: 26px; color: Theme.ink; }
+            Text { text: "Тема"; color: Theme.ink; }
+            ComboBox { model: ["Как в системе", "Светлая", "Тёмная"]; current-index <=> root.theme-index; }
+            Text { text: "Напоминать каждые, минут"; color: Theme.ink; }
+            SpinBox { minimum: 5; maximum: 120; value: 60; }
+            CheckBox { text: "Озвучивать сообщения"; checked: true; }
+            CheckBox { text: "Сигнал перед озвучкой"; checked: true; }
+            LineEdit { placeholder-text: "Как тебя называть"; }
+            Button { text: "Сохранить"; clicked => { root.save(); } }
+            Rectangle { vertical-stretch: 1; background: transparent; }
+        }
+        if root.page == 2: VerticalBox {
+            padding: 24px; spacing: 14px;
+            Text { text: "Фразы на сегодня"; font-size: 26px; color: Theme.ink; }
+            Text { text: "История: 10 000 строк · на странице 50"; color: Theme.muted; }
+            ListView { for row in root.rows: Text { text: row; color: Theme.ink; height: 30px; overflow: elide; } }
+        }
+        if root.page == 3: VerticalBox {
+            padding: 24px; spacing: 14px;
+            Text { text: "Текст и голос"; font-size: 26px; color: Theme.ink; }
+            Text { text: "Текстовая модель"; color: Theme.ink; }
+            ComboBox { model: ["Готовые фразы", "Gemma", "Qwen"]; }
+            Text { text: "Голосовая модель"; color: Theme.ink; }
+            ComboBox { model: ["Голос Windows", "CosyVoice", "Qwen TTS"]; }
+            Text { text: "Загрузки отключены: это прототип интерфейса."; color: Theme.muted; }
+            Rectangle { vertical-stretch: 1; background: transparent; }
+        }
+    }
+}

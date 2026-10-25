@@ -5,9 +5,9 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED_ROOTS = {".github", "assets", "backend", "docs", "scripts", "src", "tests"}
+ALLOWED_ROOTS = {".github", "assets", "backend", "docs", "scripts", "src", "tests", "next", "prototypes"}
 ALLOWED_TOP = {".gitignore", ".gitattributes", "README.md", "START.bat", "LICENSE"}
-ALLOWED_EXTENSIONS = {".cs", ".py", ".json", ".ps1", ".bat", ".md", ".yml", ".yaml", ".txt"}
+ALLOWED_EXTENSIONS = {".cs", ".py", ".json", ".ps1", ".bat", ".md", ".yml", ".yaml", ".txt", ".rs", ".toml", ".lock", ".slint", ".svg", ".csproj", ".config", ".manifest"}
 SECRET_PATTERNS = (
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
     re.compile(rb"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
@@ -35,7 +35,11 @@ def check():
             if name != "assets/voice/default-en.wav":
                 issues.append(name + ": non-default audio reference")
             continue
-        if name not in ALLOWED_TOP and path.suffix.lower() not in ALLOWED_EXTENSIONS:
+        if path.suffix.lower() == ".png":
+            if not name.startswith("docs/design/") and name != "prototypes/stack-comparison/common/mascot.png":
+                issues.append(name + ": unexpected image")
+            continue
+        if name not in ALLOWED_TOP and path.name != ".gitignore" and path.suffix.lower() not in ALLOWED_EXTENSIONS and name != "next/crates/storage/src/legacy_fixture.sql":
             issues.append(name + ": unexpected source file type")
             continue
         if name.startswith("assets/voice/") and name != "assets/voice/profile.json":

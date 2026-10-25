@@ -1,6 +1,7 @@
 import ctypes
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -17,6 +18,35 @@ from kavychka_local.store import Store
 
 
 class HardwareTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Win32 native environment regression")
+    def test_cpu_worker_hides_cuda_in_native_environment_before_importing_models(self):
+        # Execute the real worker's setup, intercepting only the first heavy
+        # import block. No Torch, weights, SQLite or user environment is needed.
+        script = r'''
+import ctypes, contextlib, json, os, runpy, sys
+from ctypes import wintypes as w
+def inspect(*unused):
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    get = kernel.GetEnvironmentVariableW
+    get.argtypes = [w.LPCWSTR, w.LPWSTR, w.DWORD]
+    get.restype = w.DWORD
+    buffer = ctypes.create_unicode_buffer(128)
+    length = get("CUDA_VISIBLE_DEVICES", buffer, 128)
+    print(json.dumps(dict(python=os.environ.get("CUDA_VISIBLE_DEVICES"), native=buffer.value, length=length, torch_imported="torch" in sys.modules)))
+    raise SystemExit(0)
+contextlib.redirect_stdout = inspect
+worker, root = sys.argv[1:]
+sys.argv = [worker, "--data", root, "--device", "cpu", "--check-only"]
+runpy.run_path(worker, run_name="__main__")
+'''
+        with tempfile.TemporaryDirectory(dir=ROOT / "work") as directory:
+            result = subprocess.run([sys.executable, "-B", "-c", script, str(ROOT / "backend/cosy_worker.py"), directory], check=True, capture_output=True, text=True)
+            values = json.loads(result.stdout)
+        self.assertEqual("-1", values["native"])
+        self.assertEqual(values["native"], values["python"])
+        self.assertEqual(2, values["length"])
+        self.assertFalse(values["torch_imported"])
+
     def test_driver_and_architecture_decide_each_runtime_independently(self):
         for version, compute, speech, text in (
                 (0, 0, False, False), (12040, 89, False, False),

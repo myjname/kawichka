@@ -1,0 +1,4 @@
+artifacts/
+avalonia/bin/
+avalonia/obj/
+slint/target/

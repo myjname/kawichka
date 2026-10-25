@@ -19,7 +19,10 @@ args = parser.parse_args()
 root = args.data.resolve()
 resources = (args.runtime or root).resolve()
 if args.device == "cpu":
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    # An empty value removes the native variable on Windows while os.environ
+    # still shows it as empty: Python/NVML and CUDA can then disagree. -1 hides
+    # GPUs consistently, including when reusing a CUDA-enabled Python runtime.
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HOME=str(root / "hf"),
                   TORCH_HOME=str(root / "torch"), NUMBA_CACHE_DIR=str(root / "numba"), PYTHONDONTWRITEBYTECODE="1")
 def offline(*unused, **kwargs):

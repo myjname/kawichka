@@ -1,0 +1,6099 @@
+{
+  "format": 1,
+  "language_order": [
+    "ru",
+    "en"
+  ],
+  "cases": [
+    {
+      "id": "welcome",
+      "section": [
+        "1  Знакомство",
+        "1  Welcome"
+      ],
+      "heading": [
+        "Давай познакомимся",
+        "A small introduction"
+      ],
+      "subtitle": [
+        "Кавычка напомнит о еде, отдыхе и движении.",
+        "Make room for meals, breaks and movement."
+      ],
+      "notice": [
+        "Можно начать без загрузок",
+        "Start without downloads"
+      ],
+      "notice_body": [
+        "Готовые фразы и голос Windows доступны без локальных моделей.",
+        "Prepared phrases and a Windows voice need no local models."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Язык интерфейса",
+            "Interface language"
+          ],
+          "value": [
+            "Русский",
+            "English"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Язык речи",
+            "Speech language"
+          ],
+          "value": [
+            "Русский",
+            "English"
+          ],
+          "help": [
+            "Выбирается независимо.",
+            "Chosen independently."
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Как тебя называть?",
+            "Preferred name"
+          ],
+          "value": [
+            "Саша",
+            "Alex"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Обращение",
+            "Form of address"
+          ],
+          "value": [
+            "Нейтральное",
+            "Neutral"
+          ],
+          "help": [
+            "Нейтральное / женское / мужское.",
+            "Neutral / feminine / masculine."
+          ],
+          "kind": "select"
+        }
+      ],
+      "requirements": [
+        "B02",
+        "B03",
+        "S01"
+      ],
+      "primary": [
+        "Продолжить",
+        "Continue"
+      ],
+      "secondary": [
+        "Позже",
+        "Later"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "first-schedule",
+      "wizard": true,
+      "actions": [
+        "first-schedule",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "first-schedule",
+      "section": [
+        "2  Твой день",
+        "2  Your routine"
+      ],
+      "heading": [
+        "Подстроимся под твой день",
+        "Make it fit your day"
+      ],
+      "subtitle": [
+        "Расписание можно изменить позже.",
+        "You can change your routine later."
+      ],
+      "notice": [
+        "Разминка доступна и в выходные",
+        "Stretching works on weekends too"
+      ],
+      "notice_body": [
+        "Таймер запускается после отметки завтрака, независимо от рабочих дней.",
+        "Its timer starts when you mark breakfast, regardless of workdays."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Рабочие дни",
+            "Workdays"
+          ],
+          "value": [
+            "Пн–Пт",
+            "Mon–Fri"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Рабочие часы",
+            "Working hours"
+          ],
+          "value": [
+            "09:00–18:00",
+            "09:00–18:00"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Перерыв каждые",
+            "Break interval"
+          ],
+          "value": [
+            "60 минут",
+            "60 minutes"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Завтрак / обед / ужин",
+            "Breakfast / lunch / dinner"
+          ],
+          "value": [
+            "09:00 / 13:00 / 19:00",
+            "09:00 / 13:00 / 19:00"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Разминка после завтрака",
+            "Stretch after breakfast"
+          ],
+          "value": [
+            "90 минут · каждый день",
+            "90 minutes · every day"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Часовой пояс",
+            "Time zone"
+          ],
+          "value": [
+            "Как в Windows",
+            "Follow Windows"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        }
+      ],
+      "requirements": [
+        "B02",
+        "S03",
+        "S13"
+      ],
+      "primary": [
+        "Дальше",
+        "Next"
+      ],
+      "secondary": [
+        "Назад",
+        "Back"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "first-reminder",
+      "wizard": true,
+      "actions": [
+        "first-reminder",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "first-reminder",
+      "section": [
+        "3  Пример напоминания",
+        "3  A first reminder"
+      ],
+      "heading": [
+        "Вот как я напомню",
+        "Here is your first reminder"
+      ],
+      "subtitle": [
+        "Проверка звука начнётся только по нажатию.",
+        "The sound test only starts when you press a button."
+      ],
+      "notice": [
+        "Сейчас это пример",
+        "This is a preview"
+      ],
+      "notice_body": [
+        "Пример не отмечает завтрак и не расходует фразы.",
+        "It does not mark breakfast or consume phrases."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Показывать",
+            "Show"
+          ],
+          "value": [
+            "Маскот и сообщение",
+            "Companion and message"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Вывод звука",
+            "Audio output"
+          ],
+          "value": [
+            "Системное устройство",
+            "System default"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Голос Windows",
+            "Windows voice"
+          ],
+          "value": [
+            "Русский · установлен",
+            "English · installed"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        }
+      ],
+      "requirements": [
+        "B02",
+        "B05",
+        "S01"
+      ],
+      "primary": [
+        "Проверить звук",
+        "Test sound"
+      ],
+      "secondary": [
+        "Без звука",
+        "Skip sound"
+      ],
+      "tertiary": [
+        "Дальше",
+        "Next"
+      ],
+      "tone": "info",
+      "sample": [
+        "Сделай небольшую паузу. Я подержу здесь место.",
+        "Take a small break. I will keep your place."
+      ],
+      "next": "first-models",
+      "wizard": true,
+      "companion": true,
+      "actions": [
+        "first-sound-missing",
+        "first-models",
+        "first-models"
+      ]
+    },
+    {
+      "id": "first-models",
+      "section": [
+        "4  Всё готово",
+        "4  Ready to go"
+      ],
+      "heading": [
+        "Модели — по желанию",
+        "Local models are optional"
+      ],
+      "subtitle": [
+        "Текст и голос выбираются отдельно.",
+        "Choose text and voice separately."
+      ],
+      "notice": [
+        "Базовый режим уже готов",
+        "Basic reminders are ready"
+      ],
+      "notice_body": [
+        "Локальные модели можно добавить позже. Ничего не скачивается без выбора.",
+        "Add local models later. Nothing downloads without a selection."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Запуск при входе в Windows",
+            "Run at sign-in"
+          ],
+          "value": [
+            "Включено",
+            "On"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "После завершения",
+            "After setup"
+          ],
+          "value": [
+            "Маскот и ближайшее событие; мастер больше не появляется.",
+            "Companion and next event; the wizard does not return."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B02",
+        "S01"
+      ],
+      "primary": [
+        "Без моделей",
+        "Use basic mode"
+      ],
+      "secondary": [
+        "Выбрать модели",
+        "Choose models"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "today",
+      "wizard": true,
+      "actions": [
+        "today",
+        "models",
+        "today"
+      ]
+    },
+    {
+      "id": "migration-review",
+      "section": [
+        "4  Всё готово",
+        "4  Ready to go"
+      ],
+      "heading": [
+        "Нашлась прежняя Кавычка",
+        "Previous Kavychka found"
+      ],
+      "subtitle": [
+        "Проверь, что мы подхватим.",
+        "Review what will be carried over."
+      ],
+      "notice": [
+        "Сначала проверим копию",
+        "Check a copy first"
+      ],
+      "notice_body": [
+        "Оригинал остаётся доступен для отката. Веса не скачиваем заново.",
+        "The original stays available for rollback. No model redownload."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Источник",
+            "Source"
+          ],
+          "value": [
+            "D:/KavychkaShared",
+            "D:/KavychkaShared"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Сохранится",
+            "Preserved"
+          ],
+          "value": [
+            "Настройки, 47 фраз, история, 3 пресета.",
+            "Settings, 47 phrases, history, 3 presets."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Новые параметры",
+            "New options"
+          ],
+          "value": [
+            "Только от сети; runtime до 10 секунд.",
+            "AC only; runtime wait up to 10 seconds."
+          ],
+          "help": [
+            "Только при отсутствии старого эквивалента.",
+            "Only where no previous equivalent exists."
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B02",
+        "B20",
+        "S02"
+      ],
+      "primary": [
+        "Проверить и перенести",
+        "Check and import"
+      ],
+      "secondary": [
+        "Другая папка",
+        "Choose folder"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "today",
+      "wizard": true,
+      "actions": [
+        "today",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "today",
+      "section": [
+        "Сегодня",
+        "Today"
+      ],
+      "heading": [
+        "Сегодня можно чуть спокойнее",
+        "Make room for a little break"
+      ],
+      "subtitle": [
+        "Ближайшее событие — 13:00, обед и перерыв.",
+        "Next: 13:00, lunch and a break."
+      ],
+      "notice": [
+        "На день готово 18 из 18",
+        "18 of 18 daily messages ready"
+      ],
+      "notice_body": [
+        "Закрытие настроек оставляет напоминания работать. Выход — в меню приложения.",
+        "Closing settings keeps reminders running. Quit from the app menu."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Работа",
+            "Work"
+          ],
+          "value": [
+            "Пн–Пт · 09:00–18:00",
+            "Mon–Fri · 09:00–18:00"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Разминка",
+            "Stretch"
+          ],
+          "value": [
+            "Через 90 минут после отметки завтрака, включая выходные.",
+            "90 minutes after marking breakfast, including weekends."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Озвучка",
+            "Audio"
+          ],
+          "value": [
+            "Сигнал → системный голос",
+            "Chime → system voice"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S03",
+        "S13",
+        "B18"
+      ],
+      "primary": [
+        "Отметить завтрак",
+        "Mark breakfast"
+      ],
+      "secondary": [
+        "Разминка сейчас",
+        "Stretch now"
+      ],
+      "tertiary": [
+        "Пауза",
+        "Pause"
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "paused",
+      "actions": [
+        "paused",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "schedule",
+      "section": [
+        "Расписание",
+        "Schedule"
+      ],
+      "heading": [
+        "Твой ритм",
+        "Your routine"
+      ],
+      "subtitle": [
+        "Новые значения — только будущим событиям.",
+        "Changes apply to future events only."
+      ],
+      "notice": [
+        "Разминка не ограничена расписанием",
+        "Stretching is independent of work hours"
+      ],
+      "notice_body": [
+        "В выходные нет рабочих перерывов; ручная разминка и таймер после завтрака доступны каждый день.",
+        "No work breaks on weekends; manual stretching and the breakfast timer work every day."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Рабочие дни",
+            "Workdays"
+          ],
+          "value": [
+            "Пн–Пт",
+            "Mon–Fri"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Рабочие часы",
+            "Working hours"
+          ],
+          "value": [
+            "09:00–18:00",
+            "09:00–18:00"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Перерыв каждые",
+            "Break interval"
+          ],
+          "value": [
+            "60 минут",
+            "60 minutes"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Завтрак / обед / ужин",
+            "Breakfast / lunch / dinner"
+          ],
+          "value": [
+            "09:00 / 13:00 / 19:00",
+            "09:00 / 13:00 / 19:00"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Разминка после завтрака",
+            "Stretch after breakfast"
+          ],
+          "value": [
+            "90 минут · каждый день",
+            "90 minutes · every day"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Часовой пояс",
+            "Time zone"
+          ],
+          "value": [
+            "Как в Windows",
+            "Follow Windows"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        }
+      ],
+      "requirements": [
+        "S03",
+        "S08",
+        "S13"
+      ],
+      "primary": [
+        "Сохранить",
+        "Save"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "today",
+      "actions": [
+        "today",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "appearance",
+      "section": [
+        "Настройки",
+        "Settings"
+      ],
+      "heading": [
+        "Понятно на твоём языке",
+        "Make yourself at home"
+      ],
+      "subtitle": [
+        "Язык интерфейса, речи и обращение независимы.",
+        "Interface language, speech and address are independent."
+      ],
+      "notice": [
+        "Системная тема следует Windows",
+        "System theme follows Windows"
+      ],
+      "notice_body": [
+        "Тема видна сразу; отмена возвращает прежний вид, не сохраняя черновик.",
+        "Theme previews immediately; Cancel restores the saved appearance."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Тема",
+            "Theme"
+          ],
+          "value": [
+            "Системная",
+            "System"
+          ],
+          "help": [
+            "Системная / светлая / тёмная.",
+            "System / light / dark."
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Язык интерфейса",
+            "Interface language"
+          ],
+          "value": [
+            "Русский",
+            "English"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Язык речи",
+            "Speech language"
+          ],
+          "value": [
+            "Русский",
+            "English"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Предпочтительное имя",
+            "Preferred name"
+          ],
+          "value": [
+            "Саша",
+            "Alex"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Обращение",
+            "Form of address"
+          ],
+          "value": [
+            "Женское",
+            "Feminine"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Автозапуск",
+            "Run at sign-in"
+          ],
+          "value": [
+            "Включено",
+            "On"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        }
+      ],
+      "requirements": [
+        "B03",
+        "S08",
+        "B18"
+      ],
+      "primary": [
+        "Сохранить",
+        "Save"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "today",
+      "actions": [
+        "today",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "activity",
+      "section": [
+        "Настройки",
+        "Settings"
+      ],
+      "heading": [
+        "Когда отдых считается отдыхом",
+        "What counts as a break"
+      ],
+      "subtitle": [
+        "Мышь и клавиатура, без записи содержимого ввода.",
+        "Mouse and keyboard, without recording what you type."
+      ],
+      "notice": [
+        "Кнопка скроет сообщение",
+        "Confirmation hides the message"
+      ],
+      "notice_body": [
+        "По умолчанию продолжение работы может вызвать повтор. Достаточный отдых завершает серию.",
+        "Continuing to work may trigger a follow-up. Enough idle time ends the cycle."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Достаточный отдых",
+            "Idle time"
+          ],
+          "value": [
+            "5 минут",
+            "5 minutes"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Случайных кликов",
+            "Accidental clicks allowed"
+          ],
+          "value": [
+            "3",
+            "3"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Доверять подтверждению",
+            "Trust confirmation"
+          ],
+          "value": [
+            "Выключено",
+            "Off"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "Повтор через",
+            "Follow up after"
+          ],
+          "value": [
+            "5 минут",
+            "5 minutes"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Лимиты повторов",
+            "Follow-up limits"
+          ],
+          "value": [
+            "Перерыв 3 · разминка 3 · еда 0",
+            "Break 3 · stretch 3 · meals 0"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        }
+      ],
+      "requirements": [
+        "S04",
+        "S05",
+        "B03"
+      ],
+      "primary": [
+        "Сохранить",
+        "Save"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "reminder",
+      "actions": [
+        "reminder",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "fullscreen",
+      "section": [
+        "Настройки",
+        "Settings"
+      ],
+      "heading": [
+        "Как напоминать поверх игры",
+        "Reminders over full-screen apps"
+      ],
+      "subtitle": [
+        "Изображение и звук — отдельные настройки.",
+        "Independent visual and audio controls."
+      ],
+      "notice": [
+        "По умолчанию — не мешать",
+        "Stay quiet by default"
+      ],
+      "notice_body": [
+        "Блокировка экрана по-прежнему запрещает звук и показ.",
+        "Screen lock still hides and silences reminders."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Показывать",
+            "Show"
+          ],
+          "value": [
+            "Ничего",
+            "Nothing"
+          ],
+          "help": [
+            "Маскот и сообщение / только сообщение / ничего.",
+            "Companion and message / message only / nothing."
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Звук",
+            "Audio"
+          ],
+          "value": [
+            "Тишина",
+            "Silent"
+          ],
+          "help": [
+            "Всё / сигнал / речь / тишина.",
+            "All / chime / voice / silent."
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Откладывать генерацию",
+            "Defer generation"
+          ],
+          "value": [
+            "Включено",
+            "On"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "Разрешить при «Не беспокоить»",
+            "Allow during Do not disturb"
+          ],
+          "value": [
+            "Выключено",
+            "Off"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        }
+      ],
+      "requirements": [
+        "B04",
+        "S16",
+        "S15"
+      ],
+      "primary": [
+        "Сохранить",
+        "Save"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "dnd-unavailable",
+      "actions": [
+        "dnd-unavailable",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "dnd-unavailable",
+      "section": [
+        "Настройки",
+        "Settings"
+      ],
+      "heading": [
+        "Системный режим не определён",
+        "System quiet mode is unknown"
+      ],
+      "subtitle": [
+        "Не можем подтвердить состояние «Не беспокоить».",
+        "Cannot confirm the current Do not disturb state."
+      ],
+      "notice": [
+        "Без неподтверждённых обещаний",
+        "No unsupported guarantees"
+      ],
+      "notice_body": [
+        "Можно поставить ручную паузу. Блокировка и собственные ограничения действуют независимо.",
+        "Use manual pause. Screen lock and your own restrictions remain independent."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Статус",
+            "Status"
+          ],
+          "value": [
+            "Неизвестно",
+            "Unknown"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Проверить",
+            "Check"
+          ],
+          "value": [
+            "Разрешения уведомлений и версию Windows.",
+            "Notification permissions and Windows version."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B04",
+        "S16"
+      ],
+      "primary": [
+        "Пауза на час",
+        "Pause for an hour"
+      ],
+      "secondary": [
+        "Оставить",
+        "Keep settings"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "paused",
+      "actions": [
+        "paused",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "audio",
+      "section": [
+        "Настройки",
+        "Settings"
+      ],
+      "heading": [
+        "Где будет звучать голос",
+        "Where the voice plays"
+      ],
+      "subtitle": [
+        "Выбор устройства сохраняется.",
+        "Your output choice is remembered."
+      ],
+      "notice": [
+        "Без внезапного звука на колонках",
+        "No surprise switch to speakers"
+      ],
+      "notice_body": [
+        "Потеря или смена выхода останавливает речь. Сообщение остаётся.",
+        "Losing or changing the output stops speech. The message stays."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Вывод звука",
+            "Audio output"
+          ],
+          "value": [
+            "Наушники · закреплено",
+            "Headphones · pinned"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Воспроизводить",
+            "Play"
+          ],
+          "value": [
+            "Сигнал и речь",
+            "Chime and voice"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Системный голос",
+            "System voice"
+          ],
+          "value": [
+            "Русский",
+            "English"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        }
+      ],
+      "requirements": [
+        "B05",
+        "S17"
+      ],
+      "primary": [
+        "Проверить звук",
+        "Test sound"
+      ],
+      "secondary": [
+        "Сохранить",
+        "Save"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "audio-missing",
+      "actions": [
+        "audio-missing",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "audio-missing",
+      "section": [
+        "Настройки",
+        "Settings"
+      ],
+      "heading": [
+        "Наушники недоступны",
+        "Headphones are unavailable"
+      ],
+      "subtitle": [
+        "Выбор устройства не сброшен.",
+        "Your output choice is retained."
+      ],
+      "notice": [
+        "Сообщения приходят без звука",
+        "Messages continue silently"
+      ],
+      "notice_body": [
+        "На колонки не переключаемся. Подключи выход или выбери другой. Текущая речь сама не повторится.",
+        "No switch to speakers. Reconnect or choose another output. Current speech will not replay."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Закреплённый выход",
+            "Pinned output"
+          ],
+          "value": [
+            "Наушники · отключены",
+            "Headphones · disconnected"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Напоминание",
+            "Reminder"
+          ],
+          "value": [
+            "Текст и подтверждение сохранены.",
+            "Text and confirmation are retained."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B05",
+        "S17"
+      ],
+      "primary": [
+        "Проверить снова",
+        "Check again"
+      ],
+      "secondary": [
+        "Выбрать выход",
+        "Choose output"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "audio",
+      "actions": [
+        "audio",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "animation",
+      "section": [
+        "Настройки",
+        "Settings"
+      ],
+      "heading": [
+        "Живая, но не отвлекающая",
+        "Alive, without the distraction"
+      ],
+      "subtitle": [
+        "Анимацию можно приглушить или отключить.",
+        "Reduce animation or turn it off."
+      ],
+      "notice": [
+        "Windows уменьшает движение",
+        "Windows reduced motion is on"
+      ],
+      "notice_body": [
+        "Маскот статичен. Политика одинаковая для стандартной внешности, GIF и атласов.",
+        "Companion stays still. The same policy applies to the default look, GIFs and sprite sheets."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Анимация",
+            "Animation"
+          ],
+          "value": [
+            "Включено",
+            "On"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "Интенсивность",
+            "Intensity"
+          ],
+          "value": [
+            "Спокойная",
+            "Subtle"
+          ],
+          "help": [
+            "Выключено / спокойная / выразительная.",
+            "Off / subtle / expressive."
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Размер",
+            "Size"
+          ],
+          "value": [
+            "130 px",
+            "130 px"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "На батарее",
+            "On battery"
+          ],
+          "value": [
+            "Без движений в покое",
+            "No idle animation"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Положение",
+            "Position"
+          ],
+          "value": [
+            "При смене монитора возвращаем в видимую область.",
+            "Move back on screen when displays change."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B06",
+        "B18",
+        "D14"
+      ],
+      "primary": [
+        "Сохранить",
+        "Save"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "today",
+      "actions": [
+        "today",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "paused",
+      "section": [
+        "Сегодня",
+        "Today"
+      ],
+      "heading": [
+        "Тихий час для Кавычки",
+        "A little quiet time"
+      ],
+      "subtitle": [
+        "Напоминания и автоподготовка на паузе.",
+        "Reminders and automatic preparation are paused."
+      ],
+      "notice": [
+        "Вернусь в 16:00",
+        "Back at 16:00"
+      ],
+      "notice_body": [
+        "Закрытие окна не отменяет паузу. Можно продолжить раньше.",
+        "Closing the window keeps the pause. Resume earlier if you like."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Осталось",
+            "Remaining"
+          ],
+          "value": [
+            "42 минуты",
+            "42 minutes"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Другие сроки",
+            "Other durations"
+          ],
+          "value": [
+            "15 минут / час / до завтра / до отмены",
+            "15 minutes / hour / until tomorrow / until resumed"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S05",
+        "D14"
+      ],
+      "primary": [
+        "Продолжить",
+        "Resume"
+      ],
+      "secondary": [
+        "Изменить срок",
+        "Change duration"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "paused",
+      "sample": [
+        "Меня временно заперли. Вернусь через 42 минуты.",
+        "Temporarily behind bars. Back in 42 minutes."
+      ],
+      "next": "today",
+      "companion": true,
+      "actions": [
+        "today",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "character",
+      "section": [
+        "Персонаж",
+        "Character"
+      ],
+      "heading": [
+        "Характер отдельно от голоса",
+        "Character, separate from voice"
+      ],
+      "subtitle": [
+        "Изменения влияют на будущие фразы.",
+        "Changes affect future phrases."
+      ],
+      "notice": [
+        "Готовые записи сами не меняются",
+        "Existing recordings stay as they are"
+      ],
+      "notice_body": [
+        "Для нового звучания готовых текстов есть переозвучка в библиотеке.",
+        "Use Revoice in the library to change existing audio."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Характер",
+            "Character"
+          ],
+          "value": [
+            "Нейтральная Кавычка",
+            "Neutral Kavychka"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Описание",
+            "Description"
+          ],
+          "value": [
+            "Спокойная, остроумная, слегка дразнит. Коротко, без давления и одинаковых начал.",
+            "Calm, witty and lightly teasing. Brief, without pressure or repetitive openings."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Допускать ругань",
+            "Allow swearing"
+          ],
+          "value": [
+            "Выключено",
+            "Off"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "Голос и внешность",
+            "Voice and appearance"
+          ],
+          "value": [
+            "Выбираются независимо; личные материалы только у тебя.",
+            "Chosen independently; personal materials stay local."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B03",
+        "S07",
+        "S08"
+      ],
+      "primary": [
+        "Сохранить",
+        "Save"
+      ],
+      "secondary": [
+        "Импортировать",
+        "Import"
+      ],
+      "tertiary": [
+        "Экспортировать",
+        "Export"
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "voice-preset",
+      "actions": [
+        "voice-preset",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "voice-preset",
+      "section": [
+        "Персонаж",
+        "Character"
+      ],
+      "heading": [
+        "Своя манера речи",
+        "A voice of your own"
+      ],
+      "subtitle": [
+        "Загружай подготовленную запись с расшифровкой.",
+        "Import prepared audio with a transcript."
+      ],
+      "notice": [
+        "Референсы не удаляются каждый день",
+        "References survive daily cleanup"
+      ],
+      "notice_body": [
+        "Ты отвечаешь за право использовать материал. Файлы остаются локально.",
+        "You are responsible for permission to use the material. Files stay local."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Голосовой пресет",
+            "Voice preset"
+          ],
+          "value": [
+            "Мой пресет",
+            "My voice preset"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Референсы",
+            "References"
+          ],
+          "value": [
+            "2 записи · чередуются",
+            "2 recordings · alternating"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Требования",
+            "Requirements"
+          ],
+          "value": [
+            "1–30 с чистой речи, до 8 файлов, точная расшифровка.",
+            "1–30 seconds of clean speech, up to 8 files, accurate transcripts."
+          ],
+          "help": [
+            "Поддержанный звук преобразуется для хранения; ошибка не заменяет выбранный пресет.",
+            "Supported audio is converted for storage; failure does not replace the selected preset."
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Подача",
+            "Delivery"
+          ],
+          "value": [
+            "Авто",
+            "Auto"
+          ],
+          "help": [
+            "Уверенно / спокойно / с усмешкой; свои подачи можно добавлять и удалять.",
+            "Confident / calm / amused; add and remove your own."
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Интонации",
+            "Intonation"
+          ],
+          "value": [
+            "Инструкции подач доступны в CosyVoice. Возможности другого движка показаны отдельно.",
+            "CosyVoice supports delivery instructions. Other engines show their own capabilities."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S07",
+        "B12",
+        "B03"
+      ],
+      "primary": [
+        "Добавить запись",
+        "Add recording"
+      ],
+      "secondary": [
+        "Сохранить",
+        "Save"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "visual-preset",
+      "actions": [
+        "visual-preset",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "visual-preset",
+      "section": [
+        "Персонаж",
+        "Character"
+      ],
+      "heading": [
+        "Своя внешность",
+        "Your own companion look"
+      ],
+      "subtitle": [
+        "Не меняет характер или голос.",
+        "Does not change character or voice."
+      ],
+      "notice": [
+        "Проверь предпросмотр",
+        "Preview before applying"
+      ],
+      "notice_body": [
+        "Неверный файл не заменит внешность. Прозрачные области должны пропускать клики.",
+        "Invalid input does not replace the look. Transparent areas should pass clicks through."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Внешность",
+            "Appearance"
+          ],
+          "value": [
+            "Кавычка · стандартная",
+            "Kavychka · default"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Форматы",
+            "Formats"
+          ],
+          "value": [
+            "PNG / JPEG / WebP / GIF; подготовленный Codex atlas.",
+            "PNG / JPEG / WebP / GIF; prepared Codex atlas."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Атлас",
+            "Sprite sheet"
+          ],
+          "value": [
+            "1536×1872 · 8×9 ячеек",
+            "1536×1872 · 8×9 cells"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Ограничения",
+            "Limits"
+          ],
+          "value": [
+            "GIF до 300 кадров и 40 млн пикселей суммарно.",
+            "GIF up to 300 frames and 40 million pixels total."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S07",
+        "B22",
+        "B06"
+      ],
+      "primary": [
+        "Выбрать файл",
+        "Choose file"
+      ],
+      "secondary": [
+        "Стандартная",
+        "Use default"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "character",
+      "actions": [
+        "character",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "models",
+      "section": [
+        "Голос и модели",
+        "Voice and models"
+      ],
+      "heading": [
+        "Выбери текст и голос",
+        "Choose text and voice"
+      ],
+      "subtitle": [
+        "Два выбора, одна установка выбранного.",
+        "Two choices, one install action."
+      ],
+      "notice": [
+        "Базовый режим уже готов",
+        "Basic mode is ready"
+      ],
+      "notice_body": [
+        "Веса скачиваются после выбора и сводки. Установленные файлы подхватываются.",
+        "Download after selection and review. Reuse installed files."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Текст",
+            "Text"
+          ],
+          "value": [
+            "Готовые фразы · без модели",
+            "Prepared phrases · no model"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Голос",
+            "Voice"
+          ],
+          "value": [
+            "Системный · без загрузки",
+            "System voice · no download"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Текстовые варианты",
+            "Text choices"
+          ],
+          "value": [
+            "Gemma / Qwen / Ministral / Vikhr / Saiga",
+            "Gemma / Qwen / Ministral / Vikhr / Saiga"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Голосовые варианты",
+            "Voice choices"
+          ],
+          "value": [
+            "System / CosyVoice 3 / Qwen3-TTS 0.6B / 1.7B",
+            "System / CosyVoice 3 / Qwen3-TTS 0.6B / 1.7B"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Дополнительно",
+            "Advanced"
+          ],
+          "value": [
+            "Auto / CPU / NVIDIA CUDA; путь выбранной модели.",
+            "Auto / CPU / NVIDIA CUDA; selected model folder."
+          ],
+          "help": [
+            "Сохранённые расширенные пути не сбрасываются.",
+            "Existing advanced paths are retained."
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B03",
+        "B12",
+        "S01",
+        "S09"
+      ],
+      "primary": [
+        "Установить выбранное",
+        "Install selected"
+      ],
+      "secondary": [
+        "Сохранить",
+        "Save"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "model-review",
+      "actions": [
+        "model-review",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "model-review",
+      "section": [
+        "Голос и модели",
+        "Voice and models"
+      ],
+      "heading": [
+        "Перед загрузкой",
+        "Before downloading"
+      ],
+      "subtitle": [
+        "Пример сводки; точные требования определит проверка.",
+        "Example summary; the actual probe determines requirements."
+      ],
+      "notice": [
+        "Проверь место и память",
+        "Check space and memory"
+      ],
+      "notice_body": [
+        "Проверяем файлы, распаковку и свободную память. 8 ГБ не гарантируют работу любой модели.",
+        "Check files, extraction and free memory. 8 GB does not guarantee every model works."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Выбрано",
+            "Selected"
+          ],
+          "value": [
+            "Qwen 3.5 4B · GGUF · CPU",
+            "Qwen 3.5 4B · GGUF · CPU"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Загрузка",
+            "Download"
+          ],
+          "value": [
+            "3,01 ГБ + совместимый CPU runtime",
+            "3.01 GB + compatible CPU runtime"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Пиковое место",
+            "Peak disk space"
+          ],
+          "value": [
+            "Пример: 4,2 ГБ; свободно 20 ГБ",
+            "Example: 4.2 GB required; 20 GB free"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Куда",
+            "Destination"
+          ],
+          "value": [
+            "D:/KavychkaShared/.kavychka-next/components",
+            "D:/KavychkaShared/.kavychka-next/components"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B12",
+        "S09"
+      ],
+      "primary": [
+        "Скачать выбранное",
+        "Download selected"
+      ],
+      "secondary": [
+        "Изменить выбор",
+        "Change selection"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "model-download",
+      "actions": [
+        "model-download",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "model-download",
+      "section": [
+        "Голос и модели",
+        "Voice and models"
+      ],
+      "heading": [
+        "Скачиваем выбранное",
+        "Downloading your selection"
+      ],
+      "subtitle": [
+        "Напоминания работают без моделей.",
+        "Basic reminders keep working."
+      ],
+      "notice": [
+        "1,8 из 3,01 ГБ · 60%",
+        "1.8 of 3.01 GB · 60%"
+      ],
+      "notice_body": [
+        "Можно отменить и продолжить позже. Проверка файлов обязательна.",
+        "Cancel and resume later. Files must pass verification."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Сейчас",
+            "Current"
+          ],
+          "value": [
+            "Файлы модели",
+            "Model files"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Дальше",
+            "Next"
+          ],
+          "value": [
+            "Целостность → проверка запуска",
+            "Integrity → launch check"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S09",
+        "B12"
+      ],
+      "primary": [
+        "Отменить загрузку",
+        "Cancel download"
+      ],
+      "secondary": [
+        "В фоне",
+        "In background"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "model-error",
+      "progress": 0.6,
+      "actions": [
+        "download-paused",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "model-error",
+      "section": [
+        "Голос и модели",
+        "Voice and models"
+      ],
+      "heading": [
+        "Компонент требует проверки",
+        "This component needs attention"
+      ],
+      "subtitle": [
+        "Библиотека и системный голос доступны.",
+        "Library and system voice remain available."
+      ],
+      "notice": [
+        "Файл не прошёл проверку",
+        "File verification failed"
+      ],
+      "notice_body": [
+        "Повреждённый компонент не запускается. Восстановим только выбранное.",
+        "Do not run damaged files. Repair only the selected component."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Причина",
+            "Cause"
+          ],
+          "value": [
+            "Контрольная сумма не совпала.",
+            "Checksum mismatch."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Сохраняется",
+            "Preserved"
+          ],
+          "value": [
+            "Настройки, история, записи и другие модели.",
+            "Settings, history, recordings and other models."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B12",
+        "S09"
+      ],
+      "primary": [
+        "Восстановить",
+        "Repair"
+      ],
+      "secondary": [
+        "Без модели",
+        "Use basic mode"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "error",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "models",
+      "actions": [
+        "models",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "generation",
+      "section": [
+        "Голос и модели",
+        "Voice and models"
+      ],
+      "heading": [
+        "Заранее или при событии",
+        "Prepare ahead or at reminder time"
+      ],
+      "subtitle": [
+        "Автодень и ручная партия — разные действия.",
+        "Daily preparation and a manual batch are separate."
+      ],
+      "notice": [
+        "Ожидание ограничено",
+        "Waiting has a deadline"
+      ],
+      "notice_body": [
+        "Runtime ждёт до 10 секунд от события, затем готовая или встроенная фраза. Позднее не подменяет показанное.",
+        "Runtime waits up to 10 seconds from the event, then uses a prepared or built-in phrase. Late results never replace it."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Автоподготовка дня",
+            "Automatic daily preparation"
+          ],
+          "value": [
+            "Включено",
+            "On"
+          ],
+          "help": [
+            "Действует при выключенном runtime.",
+            "Applies while runtime mode is off."
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "При каждом событии · runtime",
+            "Per-event generation · runtime"
+          ],
+          "value": [
+            "Выключено",
+            "Off"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "Предел ожидания",
+            "Wait limit"
+          ],
+          "value": [
+            "10 секунд · от 1 до 120",
+            "10 seconds · range 1 to 120"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "На день",
+            "Daily plan"
+          ],
+          "value": [
+            "18 сообщений по расписанию и повторам",
+            "18 messages from schedule and follow-ups"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Ручная партия",
+            "Manual batch"
+          ],
+          "value": [
+            "13 фраз · выбранные категории",
+            "13 phrases · selected categories"
+          ],
+          "help": [
+            "Количество ручной партии не заменяет расчёт дня.",
+            "Manual batch count does not replace the daily plan."
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Только от сети",
+            "Generate only on AC power"
+          ],
+          "value": [
+            "Включено",
+            "On"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        }
+      ],
+      "requirements": [
+        "B03",
+        "S06",
+        "S08",
+        "B17"
+      ],
+      "primary": [
+        "Сохранить",
+        "Save"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "battery",
+      "actions": [
+        "battery",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "battery",
+      "section": [
+        "Голос и модели",
+        "Voice and models"
+      ],
+      "heading": [
+        "Работаем от батареи",
+        "Running on battery"
+      ],
+      "subtitle": [
+        "Автогенерация ждёт питания от сети.",
+        "Automatic generation is waiting for AC power."
+      ],
+      "notice": [
+        "Напоминания продолжаются",
+        "Reminders continue"
+      ],
+      "notice_body": [
+        "Разрешение на одно ручное задание не изменит постоянную настройку.",
+        "A one-task override does not change the permanent setting."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Настройка",
+            "Setting"
+          ],
+          "value": [
+            "Новые записи только от сети",
+            "New recordings only on AC power"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Резервный вариант",
+            "Fallback"
+          ],
+          "value": [
+            "Готовая запись или встроенная фраза",
+            "Prepared or built-in phrase"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B17",
+        "S18"
+      ],
+      "primary": [
+        "Разрешить разово",
+        "Allow once"
+      ],
+      "secondary": [
+        "Ждать питания",
+        "Wait for AC"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "library-partial",
+      "actions": [
+        "library-partial",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "library",
+      "section": [
+        "Библиотека",
+        "Library"
+      ],
+      "heading": [
+        "Оставь то, что нравится",
+        "Keep the phrases you like"
+      ],
+      "subtitle": [
+        "Прослушивание не расходует очередь.",
+        "Preview does not consume a phrase."
+      ],
+      "notice": [
+        "Сегодня · 18 готовых",
+        "Today · 18 ready"
+      ],
+      "notice_body": [
+        "Старое дневное аудио очищается, тексты остаются. Личные референсы не затрагиваются.",
+        "Old daily audio is cleaned up; text history stays. Personal references are retained."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Фильтр",
+            "Filter"
+          ],
+          "value": [
+            "Сегодня · все категории · все статусы",
+            "Today · all categories · all statuses"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "▶ 0:04 · перерыв · оставлена",
+            "▶ 0:04 · break · kept"
+          ],
+          "value": [
+            "Клавиатура подождёт. Вернись с новыми силами.",
+            "The keyboard can wait. Come back refreshed."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "▶ 0:05 · обед · черновик",
+            "▶ 0:05 · lunch · draft"
+          ],
+          "value": [
+            "У обеда тоже есть право на внимание.",
+            "Lunch deserves some attention too."
+          ],
+          "help": [
+            "Оставить / исключить — выбор каждой строки.",
+            "Keep or exclude each row individually."
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S03",
+        "S06",
+        "B18"
+      ],
+      "primary": [
+        "Озвучить заново",
+        "Revoice"
+      ],
+      "secondary": [
+        "Создать партию",
+        "Generate batch"
+      ],
+      "tertiary": [
+        "Экспорт ZIP",
+        "Export ZIP"
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "revoice",
+      "actions": [
+        "revoice",
+        "manual-batch",
+        "archive-export"
+      ]
+    },
+    {
+      "id": "library-empty",
+      "section": [
+        "Библиотека",
+        "Library"
+      ],
+      "heading": [
+        "Пока нет своих фраз",
+        "No custom phrases yet"
+      ],
+      "subtitle": [
+        "Базовые напоминания всё равно работают.",
+        "Basic reminders still work."
+      ],
+      "notice": [
+        "Начни с небольшой партии",
+        "Start with a small batch"
+      ],
+      "notice_body": [
+        "Выбери категории и количество или подготовь день по расписанию.",
+        "Choose categories and a count, or prepare the day from your schedule."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Доступно сейчас",
+            "Available now"
+          ],
+          "value": [
+            "Встроенные фразы и системный голос",
+            "Built-in phrases and system voice"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S01",
+        "S06",
+        "B18"
+      ],
+      "primary": [
+        "Подготовить день",
+        "Prepare day"
+      ],
+      "secondary": [
+        "Создать партию",
+        "Generate batch"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "library-partial",
+      "actions": [
+        "library-partial",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "library-partial",
+      "section": [
+        "Библиотека",
+        "Library"
+      ],
+      "heading": [
+        "День готов не полностью",
+        "The day is partly ready"
+      ],
+      "subtitle": [
+        "12 из 18 готовы. Подготовка продолжится позже.",
+        "12 of 18 ready. Preparation will retry later."
+      ],
+      "notice": [
+        "Речь не получилась, текст сохранён",
+        "Speech failed; the text is safe"
+      ],
+      "notice_body": [
+        "Осталось 2 попытки, без бесконечной нагрузки. Для события есть резервная фраза.",
+        "2 attempts remain, without endless retries. Reminders have a fallback."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Причина",
+            "Cause"
+          ],
+          "value": [
+            "Недостаточно памяти для голоса.",
+            "Not enough memory for the voice."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Сохранено",
+            "Saved"
+          ],
+          "value": [
+            "Тексты и 12 проверенных аудиофайлов",
+            "Texts and 12 verified audio files"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Следующая попытка",
+            "Next attempt"
+          ],
+          "value": [
+            "Через 60 секунд, если условия позволяют.",
+            "After 60 seconds, if conditions allow."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S06",
+        "B12",
+        "B13"
+      ],
+      "primary": [
+        "Повторить сейчас",
+        "Retry now"
+      ],
+      "secondary": [
+        "Посмотреть фразы",
+        "View phrases"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "library",
+      "actions": [
+        "library",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "revoice",
+      "section": [
+        "Библиотека",
+        "Library"
+      ],
+      "heading": [
+        "Обновить только озвучку",
+        "Change only the audio"
+      ],
+      "subtitle": [
+        "Тексты, ID и отбор сохранятся.",
+        "Texts, IDs and selection stay the same."
+      ],
+      "notice": [
+        "Выбрано 18 записей",
+        "18 recordings selected"
+      ],
+      "notice_body": [
+        "Используем текущий голос. До принятия нового звука прежний доступен.",
+        "Use the current voice. Existing audio stays until new audio is accepted."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Голос",
+            "Voice"
+          ],
+          "value": [
+            "Системный голос",
+            "System voice"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Подача",
+            "Delivery"
+          ],
+          "value": [
+            "Авто · если поддерживается",
+            "Auto · where supported"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "При отмене",
+            "If cancelled"
+          ],
+          "value": [
+            "Принятое сохранится, остальные записи останутся прежними.",
+            "Keep completed results and old audio for remaining rows."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S06",
+        "S08",
+        "B13"
+      ],
+      "primary": [
+        "Начать переозвучку",
+        "Start revoicing"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "library-partial",
+      "actions": [
+        "library-partial",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "clear-audio",
+      "section": [
+        "Библиотека",
+        "Library"
+      ],
+      "heading": [
+        "Очистить записи?",
+        "Clear recordings?"
+      ],
+      "subtitle": [
+        "Проверь состав до удаления.",
+        "Review the contents before deletion."
+      ],
+      "notice": [
+        "Тексты и референсы останутся",
+        "History and references stay"
+      ],
+      "notice_body": [
+        "Удалится только выбранное дневное аудио. Настройки и защита от повторов сохранятся.",
+        "Remove only selected daily audio. Settings and repetition protection stay."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Выбрано",
+            "Selected"
+          ],
+          "value": [
+            "18 файлов · 24 МБ",
+            "18 files · 24 MB"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Папка",
+            "Folder"
+          ],
+          "value": [
+            "D:/KavychkaShared/.kavychka-next/audio",
+            "D:/KavychkaShared/.kavychka-next/audio"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Исключено",
+            "Excluded"
+          ],
+          "value": [
+            "Внешние файлы и референсы.",
+            "External files and voice references."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S10",
+        "B18"
+      ],
+      "primary": [
+        "Очистить аудио",
+        "Clear audio"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "library-empty",
+      "actions": [
+        "library-empty",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "storage",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Одна папка для всех версий",
+        "One home across app versions"
+      ],
+      "subtitle": [
+        "Модели и библиотека отдельно от программы.",
+        "Models and library live separately from the program."
+      ],
+      "notice": [
+        "Обновление подхватит эту папку",
+        "Updates reuse this folder"
+      ],
+      "notice_body": [
+        "Повторные загрузки не нужны. Для другого диска есть безопасный перенос.",
+        "No redownload needed. Moving drives is a separate safe operation."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Хранилище",
+            "Shared storage"
+          ],
+          "value": [
+            "D:/KavychkaShared",
+            "D:/KavychkaShared"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Модели / аудио / кеш",
+            "Models / audio / cache"
+          ],
+          "value": [
+            "9 ГБ / 24 МБ / 180 МБ",
+            "9 GB / 24 MB / 180 MB"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Резервы / загрузки",
+            "Backups / downloads"
+          ],
+          "value": [
+            "320 МБ / 0 МБ",
+            "320 MB / 0 MB"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Лимит восстановления",
+            "Recovery budget"
+          ],
+          "value": [
+            "2 ГБ · изменяемый",
+            "2 GB · adjustable"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Внешние модели",
+            "External models"
+          ],
+          "value": [
+            "2 пути, не копируются и не удаляются автоматически.",
+            "2 paths, never copied or deleted automatically."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B08",
+        "S10",
+        "S11"
+      ],
+      "primary": [
+        "Перенести",
+        "Move storage"
+      ],
+      "secondary": [
+        "Открыть папку",
+        "Open folder"
+      ],
+      "tertiary": [
+        "Очистить кеш",
+        "Clear cache"
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "move-review",
+      "actions": [
+        "move-review",
+        "storage",
+        "cache-cleanup"
+      ]
+    },
+    {
+      "id": "move-review",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Перенос на другой диск",
+        "Move to another drive"
+      ],
+      "subtitle": [
+        "Сначала копирование, затем проверка и переключение.",
+        "Copy, verify, then switch."
+      ],
+      "notice": [
+        "Старая папка остаётся до проверки",
+        "The old folder stays until verification"
+      ],
+      "notice_body": [
+        "Напоминания на время переключения приостановлены. Пустая замена на C не создаётся.",
+        "Reminders pause during the switch. No empty replacement on C."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Откуда / куда",
+            "From / to"
+          ],
+          "value": [
+            "D:/KavychkaShared → E:/KavychkaShared",
+            "D:/KavychkaShared → E:/KavychkaShared"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Состав",
+            "Contents"
+          ],
+          "value": [
+            "Настройки, история, записи, пресеты и управляемые модели.",
+            "Settings, history, recordings, presets and managed models."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Пик места",
+            "Peak disk space"
+          ],
+          "value": [
+            "Нужно 10 ГБ · свободно 40 ГБ",
+            "10 GB required · 40 GB free"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Внешние модели",
+            "External models"
+          ],
+          "value": [
+            "Останутся по прежним путям, перечислены отдельно.",
+            "Stay at their current paths, listed separately."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B08",
+        "S10"
+      ],
+      "primary": [
+        "Начать перенос",
+        "Start move"
+      ],
+      "secondary": [
+        "Другая папка",
+        "Choose folder"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "move-progress",
+      "actions": [
+        "move-progress",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "move-progress",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Переносим и проверяем",
+        "Moving and verifying"
+      ],
+      "subtitle": [
+        "Держи диск подключённым до завершения.",
+        "Keep the drive connected until complete."
+      ],
+      "notice": [
+        "7,5 из 10 ГБ · проверка",
+        "7.5 of 10 GB · verifying"
+      ],
+      "notice_body": [
+        "Отмена оставит прежнюю папку активной. Повтор проверит уже скопированное.",
+        "Cancel keeps the old folder active. Retrying checks existing copies."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Этапы",
+            "Stages"
+          ],
+          "value": [
+            "Копирование → проверка → переключение",
+            "Copy → verify → switch"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Активно",
+            "Active"
+          ],
+          "value": [
+            "Пока D:/KavychkaShared",
+            "Still D:/KavychkaShared"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B08",
+        "S10",
+        "B14"
+      ],
+      "primary": [
+        "Отменить перенос",
+        "Cancel move"
+      ],
+      "secondary": [
+        "В фоне",
+        "In background"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "move-failed",
+      "progress": 0.75,
+      "actions": [
+        "move-failed",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "move-failed",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Перенос не завершён",
+        "The move did not finish"
+      ],
+      "subtitle": [
+        "Выбранный диск отключился.",
+        "The destination drive disconnected."
+      ],
+      "notice": [
+        "Прежняя папка активна",
+        "The previous folder is active"
+      ],
+      "notice_body": [
+        "Данные не заменены пустой библиотекой. Подключи диск и повтори проверку.",
+        "No empty library replaced your data. Reconnect and retry."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Причина",
+            "Cause"
+          ],
+          "value": [
+            "Диск E недоступен",
+            "Drive E unavailable"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Активно",
+            "Active"
+          ],
+          "value": [
+            "D:/KavychkaShared",
+            "D:/KavychkaShared"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B08",
+        "S10",
+        "B14"
+      ],
+      "primary": [
+        "Повторить",
+        "Retry"
+      ],
+      "secondary": [
+        "Оставить прежнюю",
+        "Keep previous"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "error",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "storage",
+      "actions": [
+        "storage",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "storage-offline",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Не вижу выбранную папку",
+        "Selected folder unavailable"
+      ],
+      "subtitle": [
+        "Диск отключён или доступ запрещён.",
+        "Drive disconnected or access denied."
+      ],
+      "notice": [
+        "Другую папку не создаём",
+        "No replacement folder is created"
+      ],
+      "notice_body": [
+        "Путь сохранён. Подключи диск или выбери проверенную библиотеку.",
+        "Your path is retained. Reconnect or choose a verified library."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Ожидаемая папка",
+            "Expected folder"
+          ],
+          "value": [
+            "D:/KavychkaShared",
+            "D:/KavychkaShared"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Без исходного диска",
+            "Without the original drive"
+          ],
+          "value": [
+            "Ранее импортированная копия доступна; внешней модели нужен её диск.",
+            "An imported copy stays usable; external models need their drive."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S02",
+        "S10",
+        "B08"
+      ],
+      "primary": [
+        "Проверить снова",
+        "Check again"
+      ],
+      "secondary": [
+        "Выбрать папку",
+        "Choose folder"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "error",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "storage",
+      "actions": [
+        "storage",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "archive-export",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Сохранить переносимый архив",
+        "Save a portable backup"
+      ],
+      "subtitle": [
+        "Можно восстановить на другом компьютере.",
+        "Restore on another computer."
+      ],
+      "notice": [
+        "Модели не входят в архив",
+        "Weights are excluded"
+      ],
+      "notice_body": [
+        "Сохраняем настройки, фразы, историю, пресеты и нужное аудио. Проверь состав.",
+        "Save settings, phrases, history, presets and required audio. Review first."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Настройки и история",
+            "Settings and history"
+          ],
+          "value": [
+            "Включено",
+            "On"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "Записи и пресеты",
+            "Recordings and presets"
+          ],
+          "value": [
+            "Включено",
+            "On"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "Оценка",
+            "Estimate"
+          ],
+          "value": [
+            "48 МБ + временная проверенная копия",
+            "48 MB + verified staging copy"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Куда сохранить",
+            "Save to"
+          ],
+          "value": [
+            "Выбрать файл…",
+            "Choose file…"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        }
+      ],
+      "requirements": [
+        "B07",
+        "S12"
+      ],
+      "primary": [
+        "Сохранить архив",
+        "Save archive"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "restore-review",
+      "actions": [
+        "archive-export-done",
+        "storage",
+        "storage"
+      ]
+    },
+    {
+      "id": "restore-review",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Что добавить из архива",
+        "Review the restore"
+      ],
+      "subtitle": [
+        "Текущие настройки и исключения имеют приоритет.",
+        "Current settings and exclusions take priority."
+      ],
+      "notice": [
+        "Проверка завершена",
+        "Verification complete"
+      ],
+      "notice_body": [
+        "Добавим недостающее; использованное и исключённое не вернётся в очередь.",
+        "Add missing items; used and excluded phrases stay out of the queue."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Добавится",
+            "To add"
+          ],
+          "value": [
+            "12 фраз и 2 пресета",
+            "12 phrases and 2 presets"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Сохранится",
+            "Retained"
+          ],
+          "value": [
+            "Настройки, серия, отбор, 6 совпавших записей.",
+            "Settings, active cycle, selection, 6 matching rows."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Конфликты",
+            "Conflicts"
+          ],
+          "value": [
+            "1 ID фразы и 1 имя файла",
+            "1 phrase ID and 1 filename"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "До применения",
+            "Before applying"
+          ],
+          "value": [
+            "Создадим проверенный резерв.",
+            "Create a verified backup."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B07",
+        "B20",
+        "S12",
+        "D08"
+      ],
+      "primary": [
+        "Восстановить",
+        "Restore"
+      ],
+      "secondary": [
+        "Конфликты",
+        "Conflicts"
+      ],
+      "tertiary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "archive-progress",
+      "actions": [
+        "archive-progress",
+        "restore-conflicts",
+        "storage"
+      ]
+    },
+    {
+      "id": "restore-conflicts",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Как разрешатся совпадения",
+        "How conflicts are resolved"
+      ],
+      "subtitle": [
+        "Никакой молчаливой перезаписи.",
+        "No silent overwrites."
+      ],
+      "notice": [
+        "Текущий выбор сохранится",
+        "Current choices stay"
+      ],
+      "notice_body": [
+        "Ссылки перепривязываются только в импортных данных.",
+        "Only imported references are remapped."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Фраза с тем же ID",
+            "Same phrase ID"
+          ],
+          "value": [
+            "Оставим текущую, импортную сохраним в отчёте/архиве.",
+            "Keep current; retain imported conflict in report/archive."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Пресет с тем же ID",
+            "Same preset ID"
+          ],
+          "value": [
+            "Создадим отдельный ID.",
+            "Create a separate ID."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Одно имя файла",
+            "Same filename"
+          ],
+          "value": [
+            "Сравним содержимое; разному дадим безопасные имена.",
+            "Compare contents; different files get safe distinct names."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B07",
+        "B20",
+        "S12"
+      ],
+      "primary": [
+        "К сводке",
+        "Back to summary"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "restore-review",
+      "actions": [
+        "restore-review",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "archive-invalid",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Архив не прошёл проверку",
+        "Archive verification failed"
+      ],
+      "subtitle": [
+        "Применение остановлено до изменения данных.",
+        "Stopped before changing data."
+      ],
+      "notice": [
+        "Текущая библиотека не изменена",
+        "Current library is unchanged"
+      ],
+      "notice_body": [
+        "Повреждение, неподдержанная версия или опасный путь. Нужен исправный архив.",
+        "Damaged, unsupported or unsafe input. Choose a valid backup."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Причина",
+            "Cause"
+          ],
+          "value": [
+            "Хеш записи не совпал.",
+            "Entry checksum mismatch."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Что сделать",
+            "Next step"
+          ],
+          "value": [
+            "Повторно экспортировать на исходном устройстве.",
+            "Export again on the source device."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B07",
+        "S12",
+        "B14"
+      ],
+      "primary": [
+        "Другой архив",
+        "Choose another"
+      ],
+      "secondary": [
+        "Диагностика",
+        "Diagnostics"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "error",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "diagnostics",
+      "actions": [
+        "diagnostics",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "diagnostics",
+      "section": [
+        "Помощь и обновления",
+        "Help and updates"
+      ],
+      "heading": [
+        "Проверь отчёт перед сохранением",
+        "Review before saving"
+      ],
+      "subtitle": [
+        "Показано всё экспортируемое содержимое.",
+        "Review everything that will be exported."
+      ],
+      "notice": [
+        "Личные материалы исключены",
+        "Personal content is excluded"
+      ],
+      "notice_body": [
+        "Нет текстов фраз, референсов, секретов и личных путей. Сохранение ничего не отправляет.",
+        "No phrase text, references, secrets or personal paths. Saving does not upload anything."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Состав",
+            "Included"
+          ],
+          "value": [
+            "Версия, Windows, этап сбоя и обезличенные статусы.",
+            "Version, Windows, failed stage and redacted status."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Предпросмотр",
+            "Preview"
+          ],
+          "value": [
+            "app: 0.1.1\nplatform: windows-x64\nissue: audio_endpoint_unavailable\npath: <скрыто / redacted>",
+            "app: 0.1.1\nplatform: windows-x64\nissue: audio_endpoint_unavailable\npath: <скрыто / redacted>"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Передача",
+            "Sharing"
+          ],
+          "value": [
+            "Файл локальный; прикрепить его можно самостоятельно.",
+            "Saved locally; you decide whether to share it."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B09",
+        "S13",
+        "S20"
+      ],
+      "primary": [
+        "Сохранить отчёт",
+        "Save report"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "issues",
+      "actions": [
+        "issues",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "issues",
+      "section": [
+        "Помощь и обновления",
+        "Help and updates"
+      ],
+      "heading": [
+        "Причина и следующий шаг",
+        "A cause and a next step"
+      ],
+      "subtitle": [
+        "Не прячем разные ошибки за одним сообщением.",
+        "Different failures need different explanations."
+      ],
+      "notice": [
+        "Пример диагностики",
+        "Diagnostic example"
+      ],
+      "notice_body": [
+        "Проверка состояния не меняет личные данные.",
+        "Status checks do not change personal data."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Диск",
+            "Disk"
+          ],
+          "value": [
+            "Мало места → освободить или выбрать папку.",
+            "Low space → free space or choose a folder."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Сеть",
+            "Network"
+          ],
+          "value": [
+            "Обрыв → продолжить и проверить загрузку.",
+            "Interrupted → resume and verify."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Драйвер",
+            "Driver"
+          ],
+          "value": [
+            "CUDA недоступна → проверить драйвер или выбрать CPU.",
+            "CUDA unavailable → check driver or choose CPU."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Среда / модель",
+            "Runtime / model"
+          ],
+          "value": [
+            "Несовместимость / неверный хеш → восстановить выбранное.",
+            "Incompatible / wrong hash → repair selection."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Запись",
+            "Recording"
+          ],
+          "value": [
+            "Неверный звук → переозвучить; текст сохранён.",
+            "Invalid audio → revoice; text is safe."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B09",
+        "B12",
+        "B18"
+      ],
+      "primary": [
+        "Проверить",
+        "Check components"
+      ],
+      "secondary": [
+        "Сохранить отчёт",
+        "Save report"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "diagnostics",
+      "actions": [
+        "diagnostics",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "update",
+      "section": [
+        "Помощь и обновления",
+        "Help and updates"
+      ],
+      "heading": [
+        "Есть новая версия",
+        "An update is available"
+      ],
+      "subtitle": [
+        "Проверка не сохраняет черновик настроек.",
+        "Checking does not save your settings draft."
+      ],
+      "notice": [
+        "Настройки, модели и записи останутся",
+        "Settings, models and recordings stay"
+      ],
+      "notice_body": [
+        "Загрузка отдельно от перезапуска. Сначала проверка и резерв без весов.",
+        "Download separately from restart. Verify and back up without duplicating weights."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Версия · пример",
+            "Version · example"
+          ],
+          "value": [
+            "0.1.1 → 0.1.2",
+            "0.1.1 → 0.1.2"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Автопроверка",
+            "Automatic checks"
+          ],
+          "value": [
+            "Включено",
+            "On"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "toggle"
+        },
+        {
+          "label": [
+            "Изменения",
+            "Changes"
+          ],
+          "value": [
+            "Исправления и улучшения интерфейса.",
+            "Fixes and interface improvements."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Доверие",
+            "Trust"
+          ],
+          "value": [
+            "Канал GitHub; кандидат без подписи издателя.",
+            "GitHub channel; candidate has no publisher signature."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S11",
+        "S08",
+        "B16"
+      ],
+      "primary": [
+        "Скачать",
+        "Download update"
+      ],
+      "secondary": [
+        "Позже",
+        "Later"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "update-download",
+      "actions": [
+        "update-download",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "update-ready",
+      "section": [
+        "Помощь и обновления",
+        "Help and updates"
+      ],
+      "heading": [
+        "Обновление готово",
+        "Ready to update"
+      ],
+      "subtitle": [
+        "Перезапуск — только по твоему действию.",
+        "Restart only when you choose."
+      ],
+      "notice": [
+        "Сначала заверши текущую работу",
+        "Finish active work first"
+      ],
+      "notice_body": [
+        "Сохрани или отмени черновик. Задание можно завершить или отменить, сохранив принятое.",
+        "Save or discard edits. Finish or cancel the task, keeping completed results."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Пакет",
+            "Package"
+          ],
+          "value": [
+            "Размер, хеш и состав проверены.",
+            "Size, checksum and contents verified."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "При неудаче",
+            "If activation fails"
+          ],
+          "value": [
+            "Прежняя версия; новая работа сохраняется отдельно.",
+            "Previous version; new work retained separately."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S11",
+        "S08",
+        "B16"
+      ],
+      "primary": [
+        "Перезапустить",
+        "Restart"
+      ],
+      "secondary": [
+        "Позже",
+        "Later"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "update-failed",
+      "actions": [
+        "update-failed",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "update-failed",
+      "section": [
+        "Помощь и обновления",
+        "Help and updates"
+      ],
+      "heading": [
+        "Обновление не включено",
+        "Update not activated"
+      ],
+      "subtitle": [
+        "Новая версия не прошла проверку запуска.",
+        "The new version failed its launch check."
+      ],
+      "notice": [
+        "Прежняя версия работает",
+        "The previous version works"
+      ],
+      "notice_body": [
+        "Новая работа сохранена отдельно; переустановка моделей не нужна.",
+        "New work retained separately; no model reinstall needed."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Причина",
+            "Cause"
+          ],
+          "value": [
+            "Схема не поддерживается этим кандидатом.",
+            "Schema unsupported by this candidate."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Резерв",
+            "Backup"
+          ],
+          "value": [
+            "Проверен; библиотека восстановлена.",
+            "Verified; library restored."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S11",
+        "B14",
+        "B16"
+      ],
+      "primary": [
+        "Проверить снова",
+        "Retry check"
+      ],
+      "secondary": [
+        "Диагностика",
+        "Diagnostics"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "error",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "diagnostics",
+      "actions": [
+        "diagnostics",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "rollback",
+      "section": [
+        "Помощь и обновления",
+        "Help and updates"
+      ],
+      "heading": [
+        "Вернуться к прежней версии?",
+        "Return to the previous version?"
+      ],
+      "subtitle": [
+        "Новая работа отдельно, без автоматического слияния.",
+        "New work retained separately, without automatic merging."
+      ],
+      "notice": [
+        "Откат доступен до 30 октября",
+        "Rollback available until 30 October"
+      ],
+      "notice_body": [
+        "Резерв отражает момент перехода. Более поздние изменения останутся для разбора.",
+        "Backup reflects the update time. Later changes stay available separately."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Версия · пример",
+            "Version · example"
+          ],
+          "value": [
+            "0.1.2 → 0.1.1",
+            "0.1.2 → 0.1.1"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Восстановится",
+            "To restore"
+          ],
+          "value": [
+            "Прежняя библиотека и настройки; веса не дублируются.",
+            "Previous library and settings; no weight duplication."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Новая работа",
+            "New work"
+          ],
+          "value": [
+            "5 фраз отдельно в recovery",
+            "5 phrases separately in recovery"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S11",
+        "B15"
+      ],
+      "primary": [
+        "Откатить",
+        "Roll back"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "today",
+      "actions": [
+        "today",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "unsaved",
+      "section": [
+        "Настройки",
+        "Settings"
+      ],
+      "heading": [
+        "Есть несохранённые изменения",
+        "You have unsaved changes"
+      ],
+      "subtitle": [
+        "Выбери, что делать с черновиком.",
+        "Choose what to do with the draft."
+      ],
+      "notice": [
+        "Действующие настройки не изменены",
+        "Saved settings have not changed"
+      ],
+      "notice_body": [
+        "Сохранение применит черновик. Отмена изменений вернёт прежние значения и тему.",
+        "Save applies the draft. Discard restores saved values and theme."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Изменено",
+            "Edited"
+          ],
+          "value": [
+            "Тема и обращение",
+            "Theme and form of address"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S08",
+        "B18"
+      ],
+      "primary": [
+        "Сохранить",
+        "Save"
+      ],
+      "secondary": [
+        "Отменить изменения",
+        "Discard changes"
+      ],
+      "tertiary": [
+        "Продолжить",
+        "Keep editing"
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "appearance",
+      "actions": [
+        "appearance",
+        "today",
+        "appearance"
+      ]
+    },
+    {
+      "id": "reminder",
+      "section": [
+        "Сегодня",
+        "Today"
+      ],
+      "heading": [
+        "Один повод — одно сообщение",
+        "One reminder at a time"
+      ],
+      "subtitle": [
+        "Обед и перерыв объединены; отметки независимы.",
+        "Lunch and break combined; their state is independent."
+      ],
+      "notice": [
+        "Сообщение ждёт подтверждения",
+        "Message waits for confirmation"
+      ],
+      "notice_body": [
+        "Отметка обеда не доказывает отдых. Продолжение работы может вызвать отдельный повтор.",
+        "Marking lunch does not prove rest. Continuing to work may trigger a follow-up."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Порядок",
+            "Sequence"
+          ],
+          "value": [
+            "Сигнал → речь; сообщение до подтверждения.",
+            "Chime → speech; message until confirmed."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Фокус",
+            "Focus"
+          ],
+          "value": [
+            "Маскот и сообщение не перехватывают ввод.",
+            "Companion and message do not steal focus."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S04",
+        "S14",
+        "S15"
+      ],
+      "primary": [
+        "Отметить обед",
+        "Mark lunch"
+      ],
+      "secondary": [
+        "Я встала",
+        "I got up"
+      ],
+      "tertiary": [
+        "Пауза",
+        "Pause"
+      ],
+      "tone": "info",
+      "sample": [
+        "У обеда тоже есть право на твоё внимание.",
+        "Lunch deserves a little of your attention too."
+      ],
+      "next": "followup",
+      "companion": true,
+      "actions": [
+        "followup",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "followup",
+      "section": [
+        "Сегодня",
+        "Today"
+      ],
+      "heading": [
+        "Напоминание, чуть настойчивее",
+        "A more persistent reminder"
+      ],
+      "subtitle": [
+        "Повтор 3 из 3. Шутка не выключает приложение.",
+        "Follow-up 3 of 3. The joke does not quit the app."
+      ],
+      "notice": [
+        "Подтверждение не завершило отдых",
+        "Confirmation did not complete the break"
+      ],
+      "notice_body": [
+        "Достаточный период без активности завершает серию. Случайные действия учитываются по допуску.",
+        "Enough idle time ends the cycle. Accidental input allowance applies."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Серия",
+            "Cycle"
+          ],
+          "value": [
+            "Лимит достигнут, бесконечных повторов нет.",
+            "Limit reached; no endless follow-ups."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "После сбоя",
+            "After a crash"
+          ],
+          "value": [
+            "Свежий текст тихо, без повторной речи.",
+            "Fresh text returns silently, without replay."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S04",
+        "S15"
+      ],
+      "primary": [
+        "Я встала",
+        "I got up"
+      ],
+      "secondary": [
+        "Пауза",
+        "Pause"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "Ещё раунд с клавиатурой? Кажется, придётся меня отключать.",
+        "Another round with the keyboard? You may have to switch me off."
+      ],
+      "next": "paused",
+      "companion": true,
+      "actions": [
+        "paused",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "first-sound-missing",
+      "section": [
+        "3  Пример напоминания",
+        "3  A first reminder"
+      ],
+      "heading": [
+        "Системный голос не найден",
+        "No system voice was found"
+      ],
+      "subtitle": [
+        "Можно продолжить без речи.",
+        "You can continue without speech."
+      ],
+      "notice": [
+        "Сигнал и текст доступны",
+        "Chime and text remain available"
+      ],
+      "notice_body": [
+        "Выбери другой голос или установи язык речи в Windows. Модели не скачиваются сами.",
+        "Choose another voice or install speech in Windows. No automatic model downloads."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Язык речи",
+            "Speech language"
+          ],
+          "value": [
+            "Русский",
+            "English"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        }
+      ],
+      "requirements": [
+        "B02",
+        "B05",
+        "S01"
+      ],
+      "primary": [
+        "Без речи",
+        "Continue silently"
+      ],
+      "secondary": [
+        "Другой голос",
+        "Choose voice"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "first-models",
+      "wizard": true,
+      "actions": [
+        "first-models",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "storage-space",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Места пока не хватает",
+        "Not enough space yet"
+      ],
+      "subtitle": [
+        "Операция не началась.",
+        "Nothing has started."
+      ],
+      "notice": [
+        "Последний резерв защищён",
+        "Last usable backup is protected"
+      ],
+      "notice_body": [
+        "Не удаляем последнюю пригодную копию ради лимита. Можно освободить место или изменить бюджет.",
+        "Do not delete the last usable copy to fit a limit. Free space or adjust the budget."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Пик места",
+            "Peak space"
+          ],
+          "value": [
+            "Нужно 3 ГБ · свободно 1 ГБ",
+            "3 GB required · 1 GB free"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Лимит",
+            "Budget"
+          ],
+          "value": [
+            "2 ГБ",
+            "2 GB"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Модели",
+            "Models"
+          ],
+          "value": [
+            "Не дублируются в резервах.",
+            "Not duplicated in backups."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S10",
+        "S11",
+        "B15"
+      ],
+      "primary": [
+        "Изменить бюджет",
+        "Adjust budget"
+      ],
+      "secondary": [
+        "Выбрать папку",
+        "Choose folder"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "storage",
+      "actions": [
+        "storage",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "archive-progress",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Восстанавливаем архив",
+        "Restoring the backup"
+      ],
+      "subtitle": [
+        "Частичная библиотека не становится активной.",
+        "A partial library is not activated."
+      ],
+      "notice": [
+        "Добавлено 8 из 12 фраз",
+        "Added 8 of 12 phrases"
+      ],
+      "notice_body": [
+        "Прерывание оставляет проверенный резерв. Повтор не создаёт дубликаты.",
+        "Interruption keeps the verified backup. Retrying does not create duplicates."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Этап",
+            "Stage"
+          ],
+          "value": [
+            "Файлы проверены → применение → сверка",
+            "Files verified → apply → verify"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S12",
+        "B07",
+        "B14"
+      ],
+      "primary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "secondary": [
+        "В фоне",
+        "In background"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "archive-done",
+      "progress": 0.67,
+      "actions": [
+        "archive-done",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "archive-done",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Архив восстановлен",
+        "Backup restored"
+      ],
+      "subtitle": [
+        "Текущие настройки сохранены.",
+        "Current settings retained."
+      ],
+      "notice": [
+        "Добавлено 12 фраз и 2 пресета",
+        "Added 12 phrases and 2 presets"
+      ],
+      "notice_body": [
+        "Конфликтная фраза в отчёте. Напоминание само не озвучивалось.",
+        "Conflicting phrase recorded in report. No automatic reminder audio."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Твой отбор",
+            "Your selection"
+          ],
+          "value": [
+            "Сохранён; использованное не вернулось в очередь.",
+            "Retained; used items did not return to the queue."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S12",
+        "B07"
+      ],
+      "primary": [
+        "В библиотеку",
+        "Open library"
+      ],
+      "secondary": [
+        "Сводка",
+        "Summary"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "library",
+      "actions": [
+        "library",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "update-download",
+      "section": [
+        "Помощь и обновления",
+        "Help and updates"
+      ],
+      "heading": [
+        "Загружаем обновление",
+        "Downloading the update"
+      ],
+      "subtitle": [
+        "Прежняя версия продолжает работать.",
+        "The previous version keeps running."
+      ],
+      "notice": [
+        "21 из 35 МБ",
+        "21 of 35 MB"
+      ],
+      "notice_body": [
+        "Можно отменить и продолжить позже. После проверки перезапуск только явно.",
+        "Cancel and resume later. Restart is explicit, after verification."
+      ],
+      "rows": [
+        {
+          "label": [
+            "После загрузки",
+            "After downloading"
+          ],
+          "value": [
+            "Размер → хеш → состав пакета",
+            "Size → checksum → contents"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S11",
+        "B16"
+      ],
+      "primary": [
+        "Отменить загрузку",
+        "Cancel download"
+      ],
+      "secondary": [
+        "В фоне",
+        "In background"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "update-ready",
+      "progress": 0.6,
+      "actions": [
+        "update-ready",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "cache-cleanup",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Что очистить",
+        "Review cleanup"
+      ],
+      "subtitle": [
+        "Объём и последствия видны до удаления.",
+        "Review size and consequences first."
+      ],
+      "notice": [
+        "Личные материалы не выбраны",
+        "Personal materials excluded"
+      ],
+      "notice_body": [
+        "История и референсы остаются. Последний резерв защищён.",
+        "History and references stay. Last usable backup protected."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Кеш заданий",
+            "Job cache"
+          ],
+          "value": [
+            "180 МБ",
+            "180 MB"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Истёкший карантин",
+            "Expired quarantine"
+          ],
+          "value": [
+            "24 МБ старше 7 дней",
+            "24 MB older than 7 days"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Останется",
+            "Kept"
+          ],
+          "value": [
+            "Модели, пресеты, тексты, активное аудио, последний резерв.",
+            "Models, presets, texts, current audio, last usable backup."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S10",
+        "B15"
+      ],
+      "primary": [
+        "Очистить выбранное",
+        "Clear selected"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "storage",
+      "actions": [
+        "storage",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "uninstall",
+      "section": [
+        "Помощь и обновления",
+        "Help and updates"
+      ],
+      "heading": [
+        "Удалить программу, сохранить своё",
+        "Remove the app, keep your data"
+      ],
+      "subtitle": [
+        "Обычное удаление оставляет библиотеку.",
+        "Normal uninstall keeps the library."
+      ],
+      "notice": [
+        "Данные остаются по умолчанию",
+        "Data is kept by default"
+      ],
+      "notice_body": [
+        "Удалим программу и автозапуск. Полное стирание данных — отдельный выбор после сводки и предложения экспорта.",
+        "Remove program and autostart. Erasing data is a separate choice after review and an export offer."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Сохраняется",
+            "Kept"
+          ],
+          "value": [
+            "D:/KavychkaShared · модели, история, записи, пресеты",
+            "D:/KavychkaShared · models, history, recordings, presets"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Внешние пути",
+            "External paths"
+          ],
+          "value": [
+            "Не удаляются этой операцией.",
+            "Never removed by this operation."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S19",
+        "B10"
+      ],
+      "primary": [
+        "Удалить программу",
+        "Remove app"
+      ],
+      "secondary": [
+        "Сохранить архив",
+        "Save backup"
+      ],
+      "tertiary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "storage",
+      "actions": [
+        "uninstall",
+        "archive-export",
+        "today"
+      ]
+    },
+    {
+      "id": "library-loading",
+      "section": [
+        "Библиотека",
+        "Library"
+      ],
+      "heading": [
+        "Открываем библиотеку",
+        "Opening the library"
+      ],
+      "subtitle": [
+        "Отбор недоступен, пока список не готов.",
+        "Selection is disabled until the list is ready."
+      ],
+      "notice": [
+        "Читаем сохранённые записи",
+        "Reading saved recordings"
+      ],
+      "notice_body": [
+        "При ошибке покажем причину и повтор без сброса библиотеки.",
+        "On failure, show the cause and retry without resetting the library."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Напоминания",
+            "Reminders"
+          ],
+          "value": [
+            "Работают на уже доступных данных.",
+            "Continue using available data."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B18",
+        "S13"
+      ],
+      "primary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "secondary": [
+        "",
+        ""
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "library",
+      "actions": [
+        "library",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "runtime-fallback",
+      "section": [
+        "Сегодня",
+        "Today"
+      ],
+      "heading": [
+        "Напоминание пришло вовремя",
+        "The reminder arrived on time"
+      ],
+      "subtitle": [
+        "Свежая фраза не успела за 10 секунд.",
+        "Fresh phrase missed the 10-second deadline."
+      ],
+      "notice": [
+        "Использована готовая запись",
+        "Used a prepared recording"
+      ],
+      "notice_body": [
+        "Позднее сохраним на будущее, но это сообщение не заменим и звук не повторим.",
+        "Save late results for later, without replacing this message or replaying audio."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Статус",
+            "Status"
+          ],
+          "value": [
+            "Предел ожидания, не потеря события.",
+            "A wait deadline, not a lost reminder."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S06",
+        "B13"
+      ],
+      "primary": [
+        "Понятно",
+        "Got it"
+      ],
+      "secondary": [
+        "Голос и модели",
+        "Voice and models"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "today",
+      "actions": [
+        "today",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "download-paused",
+      "section": [
+        "Голос и модели",
+        "Voice and models"
+      ],
+      "heading": [
+        "Загрузка остановлена",
+        "Download paused"
+      ],
+      "subtitle": [
+        "Напоминания работают без моделей.",
+        "Basic reminders keep working."
+      ],
+      "notice": [
+        "Загрузка остановлена",
+        "Download paused"
+      ],
+      "notice_body": [
+        "Проверенные файлы и часть загрузки сохранены. Можно продолжить позже.",
+        "Verified files and partial downloads remain. Resume later."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Сохранено",
+            "Retained"
+          ],
+          "value": [
+            "1,8 из 3,01 ГБ",
+            "1.8 of 3.01 GB"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "S09",
+        "B12"
+      ],
+      "primary": [
+        "Продолжить",
+        "Resume"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "model-download",
+      "progress": -1,
+      "companion": false,
+      "actions": [
+        "model-download",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "manual-batch",
+      "section": [
+        "Голос и модели",
+        "Voice and models"
+      ],
+      "heading": [
+        "Небольшая партия фраз",
+        "A small phrase batch"
+      ],
+      "subtitle": [
+        "Автодень и ручная партия — разные действия.",
+        "Daily preparation and a manual batch are separate."
+      ],
+      "notice": [
+        "Небольшая партия фраз",
+        "A small phrase batch"
+      ],
+      "notice_body": [
+        "Количество относится к этой партии. Автодень рассчитывается по расписанию.",
+        "This count is for the manual batch. Daily preparation uses the schedule."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Количество",
+            "Count"
+          ],
+          "value": [
+            "13",
+            "13"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Категории",
+            "Categories"
+          ],
+          "value": [
+            "Перерыв / завтрак / обед / ужин / разминка",
+            "Break / breakfast / lunch / dinner / stretch"
+          ],
+          "help": [
+            "Выбери несколько.",
+            "Select multiple categories."
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Подача",
+            "Delivery"
+          ],
+          "value": [
+            "Авто",
+            "Auto"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "select"
+        }
+      ],
+      "requirements": [
+        "B03",
+        "S06"
+      ],
+      "primary": [
+        "Создать партию",
+        "Generate batch"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "library-partial",
+      "companion": false,
+      "progress": -1,
+      "actions": [
+        "library-partial",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "pause-duration",
+      "section": [
+        "Сегодня",
+        "Today"
+      ],
+      "heading": [
+        "Пауза на твоих условиях",
+        "Pause on your terms"
+      ],
+      "subtitle": [
+        "Напоминания и автоподготовка на паузе.",
+        "Reminders and automatic preparation are paused."
+      ],
+      "notice": [
+        "Пауза на твоих условиях",
+        "Pause on your terms"
+      ],
+      "notice_body": [
+        "Напоминания и автоматическая подготовка остановятся до выбранного срока.",
+        "Reminders and automatic preparation stop for your chosen duration."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Срок",
+            "Duration"
+          ],
+          "value": [
+            "На час",
+            "For an hour"
+          ],
+          "help": [
+            "15 минут / час / до завтра / до отмены / свой срок.",
+            "15 minutes / hour / until tomorrow / until resumed / custom."
+          ],
+          "kind": "select"
+        },
+        {
+          "label": [
+            "Свой срок",
+            "Custom duration"
+          ],
+          "value": [
+            "90 минут",
+            "90 minutes"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        }
+      ],
+      "requirements": [
+        "S05",
+        "B18"
+      ],
+      "primary": [
+        "Поставить паузу",
+        "Pause"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "Меня временно заперли. Вернусь через 42 минуты.",
+        "Temporarily behind bars. Back in 42 minutes."
+      ],
+      "next": "paused",
+      "companion": false,
+      "progress": -1,
+      "actions": [
+        "paused",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "install-review",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Где будет жить Кавычка",
+        "Choose a home for Kavychka"
+      ],
+      "subtitle": [
+        "Модели и библиотека отдельно от программы.",
+        "Models and library live separately from the program."
+      ],
+      "notice": [
+        "Где будет жить Кавычка",
+        "Choose a home for Kavychka"
+      ],
+      "notice_body": [
+        "Программа отдельно от данных. Существующее выбранное хранилище сохраняем.",
+        "Program files are separate from data. Reuse your selected library."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Программа",
+            "Program folder"
+          ],
+          "value": [
+            "C:/Apps/Kavychka",
+            "C:/Apps/Kavychka"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Общее хранилище",
+            "Shared storage"
+          ],
+          "value": [
+            "D:/KavychkaShared",
+            "D:/KavychkaShared"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "input"
+        },
+        {
+          "label": [
+            "Прежняя библиотека",
+            "Previous library"
+          ],
+          "value": [
+            "Найдена; посмотреть сводку",
+            "Found; review summary"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Ярлык и автозапуск",
+            "Shortcut and autostart"
+          ],
+          "value": [
+            "Выбор сохраняется при обновлении.",
+            "User choices survive updates."
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B02",
+        "B08",
+        "S01",
+        "S02",
+        "S11"
+      ],
+      "primary": [
+        "Установить",
+        "Install"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "migration-review",
+      "companion": false,
+      "progress": -1,
+      "actions": [
+        "migration-review",
+        "today",
+        "today"
+      ]
+    },
+    {
+      "id": "erase-data",
+      "section": [
+        "Помощь и обновления",
+        "Help and updates"
+      ],
+      "heading": [
+        "Удалить данные безвозвратно?",
+        "Erase app data permanently?"
+      ],
+      "subtitle": [
+        "Обычное удаление оставляет библиотеку.",
+        "Normal uninstall keeps the library."
+      ],
+      "notice": [
+        "Удалить данные безвозвратно?",
+        "Erase app data permanently?"
+      ],
+      "notice_body": [
+        "Предложим архив. Чужие файлы и внешние модели не удаляются. Недоступный диск не считается очищенным.",
+        "Offer a backup. Do not delete unrelated files or external models. An offline drive is not a completed erase."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Точная папка",
+            "Exact folder"
+          ],
+          "value": [
+            "D:/KavychkaShared",
+            "D:/KavychkaShared"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Удалится",
+            "To erase"
+          ],
+          "value": [
+            "История, настройки, аудио, пресеты и управляемые модели · 10 ГБ",
+            "History, settings, audio, presets and managed models · 10 GB"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Подтверждение",
+            "Confirmation"
+          ],
+          "value": [
+            "Ввести: УДАЛИТЬ",
+            "Type: ERASE"
+          ],
+          "help": [
+            "Удаление доступно после проверки принадлежности и подтверждения.",
+            "Enable erase after ownership and confirmation checks."
+          ],
+          "kind": "input"
+        }
+      ],
+      "requirements": [
+        "B10",
+        "S19"
+      ],
+      "primary": [
+        "Удалить данные",
+        "Erase data"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "warning",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "uninstall",
+      "companion": false,
+      "progress": -1,
+      "actions": [
+        "uninstall",
+        "today",
+        "today"
+      ],
+      "primary_enabled": false
+    },
+    {
+      "id": "archive-export-done",
+      "section": [
+        "Хранилище",
+        "Storage"
+      ],
+      "heading": [
+        "Архив сохранён",
+        "Backup saved"
+      ],
+      "subtitle": [
+        "Можно восстановить на другом компьютере.",
+        "Restore on another computer."
+      ],
+      "notice": [
+        "Архив сохранён",
+        "Backup saved"
+      ],
+      "notice_body": [
+        "Проверка записанного архива завершена. Файл локальный, не отправлялся в сеть.",
+        "Saved archive verified. A local file, not uploaded."
+      ],
+      "rows": [
+        {
+          "label": [
+            "Файл",
+            "File"
+          ],
+          "value": [
+            "Kavychka-backup-2026-10-23.zip",
+            "Kavychka-backup-2026-10-23.zip"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        },
+        {
+          "label": [
+            "Размер",
+            "Size"
+          ],
+          "value": [
+            "48 МБ",
+            "48 MB"
+          ],
+          "help": [
+            "",
+            ""
+          ],
+          "kind": "note"
+        }
+      ],
+      "requirements": [
+        "B07",
+        "S12"
+      ],
+      "primary": [
+        "Открыть папку",
+        "Open folder"
+      ],
+      "secondary": [
+        "Отменить",
+        "Cancel"
+      ],
+      "tertiary": [
+        "",
+        ""
+      ],
+      "tone": "info",
+      "sample": [
+        "",
+        ""
+      ],
+      "next": "storage",
+      "companion": false,
+      "progress": -1,
+      "actions": [
+        "storage",
+        "today",
+        "today"
+      ]
+    }
+  ],
+  "stress_cases": [
+    "welcome",
+    "first-schedule",
+    "appearance",
+    "fullscreen",
+    "audio-missing",
+    "generation",
+    "storage",
+    "restore-review",
+    "diagnostics",
+    "unsaved"
+  ],
+  "viewports": [
+    {
+      "id": "desktop",
+      "width": 1100,
+      "height": 780,
+      "scale": 1
+    },
+    {
+      "id": "compact",
+      "width": 720,
+      "height": 480,
+      "scale": 1
+    },
+    {
+      "id": "dpi150",
+      "width": 1100,
+      "height": 780,
+      "scale": 1.5
+    },
+    {
+      "id": "dpi200",
+      "width": 720,
+      "height": 480,
+      "scale": 2
+    }
+  ]
+}

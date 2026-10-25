@@ -1,0 +1,173 @@
+// P2-only view: synthetic data and actions, no service/storage imports.
+import { ScrollView } from "std-widgets.slint";
+export struct ReviewRow { label: string, value: string, help: string, kind: string }
+global ReviewColors {
+    in property <bool> dark;
+    out property <color> canvas: dark ? #15171d : #f5f6fa;
+    out property <color> surface: dark ? #20232c : white;
+    out property <color> soft: dark ? #282d3a : #edf0fc;
+    out property <color> line: dark ? #414858 : #d6dae5;
+    out property <color> control-border: dark ? #78859e : #7c879f;
+    out property <color> ink: dark ? #f1f2f6 : #242837;
+    out property <color> muted: dark ? #b1b9ca : #596579;
+    out property <color> accent: dark ? #b0bdff : #4358b3;
+    out property <color> button: dark ? #a1b0ff : #4d60bd;
+    out property <color> button-ink: dark ? #15171d : white;
+    out property <color> warning: dark ? #ffd39a : #805014;
+}
+component Copy inherits Text {
+    font-family: "Segoe UI"; font-size: 14px; color: ReviewColors.ink;
+    wrap: word-wrap;
+}
+component Action inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary;
+    in property <bool> marked;
+    in property <bool> enabled: true;
+    callback activated;
+    min-width: 112px; preferred-width: caption.preferred-width + 34px;
+    height: 44px; border-radius: 9px;
+    background: !root.enabled ? ReviewColors.canvas : root.primary ? ReviewColors.button : ReviewColors.surface;
+    border-width: root.marked || focus.has-focus ? 3px : 1px;
+    border-color: root.marked || focus.has-focus ? ReviewColors.accent : ReviewColors.control-border;
+    accessible-role: button; accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.activated(); } }
+    forward-focus: focus;
+    caption := Copy { text: root.label; horizontal-alignment: center; vertical-alignment: center;
+        color: !root.enabled ? ReviewColors.muted : root.primary ? ReviewColors.button-ink : ReviewColors.ink;
+        font-weight: root.primary ? 600 : 400; wrap: no-wrap;
+    }
+    focus := FocusScope { enabled: root.enabled; key-pressed(event) => {
+        if (event.text == "\n" || event.text == " ") { root.activated(); return accept; }
+        return reject;
+    } }
+    TouchArea { enabled: root.enabled; clicked => { focus.focus(); root.activated(); } }
+}
+component SettingRow inherits Rectangle {
+    in property <ReviewRow> item;
+    min-height: content.preferred-height + 32px;
+    background: ReviewColors.surface;
+    Rectangle { x: 20px; y: parent.height - 1px; width: parent.width - 40px; height: 1px; background: ReviewColors.line; }
+    content := VerticalLayout { x: 22px; y: 16px; width: parent.width - 44px; spacing: 6px;
+        height: self.preferred-height;
+        Copy { text: root.item.label; font-weight: 600; }
+        if root.item.kind != "note" : Rectangle {
+            height: 38px; background: ReviewColors.canvas; border-radius: 7px;
+            border-color: ReviewColors.control-border; border-width: 1px;
+            Copy { x: 12px; y: 0px; width: parent.width - 45px; height: parent.height;
+                text: root.item.value; vertical-alignment: center; wrap: no-wrap; overflow: elide;
+                accessible-label: root.item.label + ": " + root.item.value;
+            }
+            Copy { x: parent.width - 28px; y: 0px; width: 20px; height: parent.height;
+                text: root.item.kind == "select" ? "⌄" : root.item.kind == "toggle" ? (root.item.value == "Включено" || root.item.value == "On" ? "✓" : "—") : "";
+                color: ReviewColors.accent; vertical-alignment: center;
+            }
+        }
+        if root.item.kind == "note" : Copy { text: root.item.value; color: ReviewColors.accent; }
+        if root.item.help != "" : Copy { text: root.item.help; color: ReviewColors.muted; font-size: 13px; }
+    }
+}
+export component ReviewWindow inherits Window {
+    preferred-width: 1100px; preferred-height: 780px; min-width: 720px; min-height: 480px;
+    property <bool> compact: self.width < 900px;
+    property <length> side: compact ? 72px : 208px;
+    property <length> left: side + 34px;
+    title: "Кавычка · P2"; background: ReviewColors.canvas;
+    in property <bool> dark;
+    in property <bool> english;
+    in property <string> heading;
+    in property <string> subtitle;
+    in property <string> section;
+    in property <string> notice;
+    in property <string> notice-body;
+    in property <string> tone;
+    in property <string> primary;
+    in property <string> secondary;
+    in property <string> tertiary;
+    in property <string> sample;
+    in property <bool> primary-enabled: true;
+    in property <[ReviewRow]> rows;
+    in property <bool> wizard;
+    in property <bool> companion;
+    in property <bool> focus-primary;
+    in property <bool> bottom;
+    in property <float> progress: -1;
+    out property <int> activations: 0;
+    out property <length> scroll-overflow: max(0px, scroll.content-height - scroll.height);
+    out property <length> body-height: scroll.height;
+    out property <bool> footer-clipped: footer.preferred-width > footer.width + 1px;
+    public function focus-action() { action.focus(); }
+    init => { ReviewColors.dark = root.dark; }
+    changed dark => { ReviewColors.dark = root.dark; }
+    Rectangle { x: 0px; y: 0px; width: root.side; height: parent.height; background: ReviewColors.surface;
+        Rectangle { x: parent.width - 1px; width: 1px; height: parent.height; background: ReviewColors.line; }
+        Rectangle { x: 24px; y: 30px; width: 36px; height: 36px; border-radius: 10px; background: ReviewColors.button;
+            Image { x: 4px; y: 4px; width: 28px; height: 28px; source: @image-url("quote.svg"); colorize: ReviewColors.button-ink; }
+        }
+        if !root.compact : Copy { x: 70px; y: 34px; width: 128px; height: 32px; text: root.english ? "Kavychka" : "Кавычка"; font-size: 21px; font-weight: 650; }
+        if !root.compact : Copy { x: 24px; y: 89px; width: 164px; text: root.english ? "A little room for yourself" : "Немного времени для себя"; font-size: 12px; color: ReviewColors.muted; }
+        VerticalLayout { x: root.compact ? 10px : 16px; y: root.compact ? 94px : 146px; width: root.compact ? 52px : 175px; spacing: root.compact ? 2px : 8px;
+            height: self.preferred-height;
+            for name[i] in (root.wizard ? (root.english ? ["1  Welcome", "2  Your routine", "3  A first reminder", "4  Ready to go"] : ["1  Знакомство", "2  Твой день", "3  Пример напоминания", "4  Всё готово"]) : (root.english ? ["Today", "Schedule", "Library", "Voice and models", "Character", "Settings", "Storage", "Help and updates"] : ["Сегодня", "Расписание", "Библиотека", "Голос и модели", "Персонаж", "Настройки", "Хранилище", "Помощь и обновления"])) : Rectangle {
+                height: 44px; border-radius: 9px;
+                background: name == root.section ? ReviewColors.soft : transparent;
+                if root.compact : Image { x: 15px; y: 11px; width: 22px; height: 22px; colorize: name == root.section ? ReviewColors.accent : ReviewColors.muted;
+                    source: i == 0 ? @image-url("clock.svg") : i == 1 ? @image-url("calendar.svg") : i == 2 || i == 6 ? @image-url("library.svg") : i == 3 ? @image-url("voice.svg") : i == 4 ? @image-url("person.svg") : @image-url("settings.svg");
+                    accessible-label: name;
+                }
+                if !root.compact : Copy { x: 12px; y: 0px; width: parent.width - 20px; height: parent.height; text: name; vertical-alignment: center;
+                    color: name == root.section ? ReviewColors.accent : ReviewColors.muted;
+                    font-weight: name == root.section ? 600 : 400; font-size: 13px;
+                }
+            }
+        }
+        if !root.compact : Copy { x: 24px; y: parent.height - 60px; width: 164px; text: root.english ? "DESIGN REVIEW\nSynthetic data" : "ПРОСМОТР МАКЕТОВ\nДемонстрационные данные"; color: ReviewColors.muted; font-size: 10px; }
+    }
+    header := VerticalLayout { x: root.left; y: 26px; width: parent.width - root.left - 34px; spacing: 12px;
+        height: self.preferred-height;
+        Copy { text: root.section; color: ReviewColors.accent; font-size: 12px; font-weight: 600; }
+        Copy { text: root.heading; font-size: root.compact ? 24px : 27px; font-weight: 650; }
+        Copy { text: root.subtitle; color: ReviewColors.muted; font-size: 13px; }
+    }
+    scroll := ScrollView {
+        x: root.left; y: header.y + header.preferred-height + 22px; width: parent.width - root.left - 34px; height: parent.height - self.y - 114px;
+        content-width: self.width;
+        content-y: root.bottom ? min(0px, self.height - self.content-height) : 0px;
+        VerticalLayout { padding: 0px; padding-right: 12px; spacing: 14px;
+            Rectangle { min-height: info.preferred-height + 32px; border-radius: 12px;
+                background: ReviewColors.soft;
+                info := VerticalLayout { x: 20px; y: 16px; width: parent.width - 40px; spacing: 7px;
+                    height: self.preferred-height;
+                    Copy { text: root.notice; font-weight: 600; color: root.tone == "error" || root.tone == "warning" ? ReviewColors.warning : ReviewColors.accent; }
+                    Copy { text: root.notice-body; color: ReviewColors.ink; font-size: 13px; }
+                    if root.progress >= 0 : Rectangle { height: 5px; background: ReviewColors.line; border-radius: 2px;
+                        Rectangle { height: parent.height; width: parent.width * root.progress; background: ReviewColors.accent; border-radius: 2px; }
+                    }
+                }
+            }
+            if root.companion : Rectangle { height: 158px; border-radius: 14px; background: ReviewColors.surface; border-color: ReviewColors.line; border-width: 1px;
+                Image { x: 24px; y: 30px; width: 92px; height: 92px; source: @image-url("quote.svg"); }
+                if root.tone == "paused" : Rectangle { x: 23px; y: 24px; width: 94px; height: 104px; background: transparent; border-radius: 10px; border-width: 2px; border-color: ReviewColors.accent;
+                    for i in 3 : Rectangle { x: 23px + i * 23px; y: 0px; width: 2px; height: parent.height; background: ReviewColors.accent; }
+                }
+                Copy { x: 142px; y: 24px; width: parent.width - 170px; text: root.sample; font-size: 17px; font-weight: 600; }
+                Copy { x: 142px; y: 112px; width: parent.width - 170px; text: root.tone == "paused" ? (root.english ? "Resume     ·     42 min left" : "Продолжить     ·     Осталось 42 мин") : (root.english ? "I got up     ·     Pause" : "Я встала     ·     Пауза"); color: ReviewColors.accent; font-size: 13px; }
+            }
+            Rectangle { min-height: settings.preferred-height; border-radius: 14px; clip: true;
+                background: ReviewColors.surface; border-color: ReviewColors.line; border-width: 1px;
+                settings := VerticalLayout { spacing: 0px; padding: 0px;
+                    for row in root.rows : SettingRow { item: row; }
+                }
+            }
+        }
+    }
+    Rectangle { x: root.left; y: parent.height - 93px; width: parent.width - root.left - 34px; height: 1px; background: ReviewColors.line; }
+    footer := HorizontalLayout { x: root.left; y: parent.height - 77px; width: parent.width - root.left - 34px; height: 44px; spacing: 10px;
+        action := Action { label: root.primary; primary: true; enabled: root.primary-enabled; marked: root.focus-primary; activated => { root.activations += 1; } }
+        if root.secondary != "" : Action { label: root.secondary; activated => { root.activations += 1; } }
+        if root.tertiary != "" : Action { label: root.tertiary; activated => { root.activations += 1; } }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    Copy { x: root.left; y: parent.height - 23px; width: parent.width - root.left - 34px; text: root.english ? "Prototype · actions do not change your app or files" : "Макет · действия не изменяют приложение и файлы"; font-size: 10px; color: ReviewColors.muted; }
+}

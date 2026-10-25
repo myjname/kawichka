@@ -65,8 +65,10 @@ class Llama:
         try:
             self.keyfile.write_text(self.token, encoding="ascii")
             self.log = self.log_path.open("w", encoding="utf-8")
-            args = [str(executable), "-m", str(model), "--host", "127.0.0.1", "--port", str(port),
-                    "--api-key-file", str(self.keyfile), "--no-webui", "--ctx-size", "4096", "--parallel", "1",
+            # llama.cpp's key reader uses a narrow Windows path. Keep that
+            # argument ASCII; CreateProcessW still sets the Unicode job cwd.
+            args = [str(Path(executable).resolve()), "-m", str(Path(model).resolve()), "--host", "127.0.0.1", "--port", str(port),
+                    "--api-key-file", self.keyfile.name, "--no-webui", "--ctx-size", "4096", "--parallel", "1",
                     "--n-gpu-layers", "0" if device == "cpu" else "99", "--batch-size", "512", "--ubatch-size", "256",
                     "--flash-attn", "off", "--jinja", "--chat-template-kwargs", '{"enable_thinking":false}']
             if device == "cpu":
@@ -74,7 +76,7 @@ class Llama:
             elif device == "cuda":
                 args += ["--device", "CUDA0"]
             env = dict(os.environ, GGML_CUDA_DISABLE_GRAPHS="1")
-            self.process = subprocess.Popen(args, cwd=Path(executable).parent, stdout=self.log, stderr=subprocess.STDOUT,
+            self.process = subprocess.Popen(args, cwd=self.root, stdout=self.log, stderr=subprocess.STDOUT,
                                             env=env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             self.job = WindowsJob(self.process)
             deadline = time.monotonic() + 180

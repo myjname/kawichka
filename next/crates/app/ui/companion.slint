@@ -1,0 +1,116 @@
+import { Button, Palette } from "std-widgets.slint";
+export component PetWindow inherits Window {
+    title: "Kavychka · companion"; width: 116px; height: 116px;
+    no-frame: true; always-on-top: true; background: transparent;
+    in property <bool> dark;
+    in property <bool> paused;
+    in property <bool> blink;
+    in property <bool> attention;
+    in property <string> countdown;
+    in property <int> pending;
+    in property <bool> english;
+    in property <image> custom-image;
+    in property <bool> custom-visual;
+    callback open-settings;
+    callback review;
+    callback pause-minutes(int);
+    callback stretch-now;
+    callback toggle-pet;
+    callback quit;
+    callback drag-start;
+    callback drag-move;
+    callback drag-end;
+    Rectangle {
+        x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; border-radius: 26px;
+        background: root.custom-visual ? transparent : (root.dark ? #282d3a : #edf0fc); border-width: root.custom-visual ? 0px : 1px; border-color: root.dark ? #41495f : #d8dff5;
+        Image { x: root.custom-visual ? 0px : 8px; y: root.custom-visual ? 0px : (root.attention ? 4px : 8px); width: parent.width - (root.custom-visual ? 0px : 16px); height: parent.height - (root.custom-visual ? 0px : 20px); image-fit: contain; source: root.custom-visual ? root.custom-image : @image-url("../../design-preview/ui/quote.svg"); }
+        if root.blink && !root.custom-visual : Rectangle { x: 29px; y: root.attention ? 25px : 29px; width: 7px; height: 7px; background: #637ad1; Rectangle { y: 4px; height: 1px; width: parent.width; background: white; } }
+        if root.blink && !root.custom-visual : Rectangle { x: 63px; y: root.attention ? 25px : 29px; width: 7px; height: 7px; background: #637ad1; Rectangle { y: 4px; height: 1px; width: parent.width; background: white; } }
+        if root.paused : Rectangle {
+            for i in 4 : Rectangle { x: 14px + i*23px; y: 10px; width: 3px; height: 66px; background: root.dark ? #8e97ae : #9099ae; }
+            Text { x: 3px; y: 77px; width: 94px; height: 19px; text: root.countdown; horizontal-alignment: center; vertical-alignment: center; color: root.dark ? #f1f2f6 : #242837; font-size: 11px; font-family: "Segoe UI"; }
+        }
+        if !root.paused && root.pending > 0 : Rectangle {
+            x: 68px; y: 73px; width: 25px; height: 22px; border-radius: 10px; background: #5369c9;
+            Text { text: root.pending; color: white; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; }
+        }
+        TouchArea {
+            pointer-event(event) => { if (event.button == PointerEventButton.left) { if(event.kind == PointerEventKind.down) { root.drag-start(); } if(event.kind == PointerEventKind.up) { root.drag-end(); } } }
+            moved => { if (self.pressed) { root.drag-move(); } }
+            double-clicked => { root.open-settings(); }
+        }
+        ContextMenuArea { Menu {
+            MenuItem { title: root.english ? "Open Kavychka" : "Открыть Кавычку"; activated => { root.open-settings(); } }
+            MenuItem { title: root.english ? "Pending reminder" : "Неподтверждённое сообщение"; enabled: root.pending>0; activated => { root.review(); } }
+            MenuItem { title: root.english ? "Stretch now" : "Разминка сейчас"; activated => { root.stretch-now(); } }
+            MenuItem { title: root.paused ? (root.english ? "Resume" : "Возобновить") : (root.english ? "Pause for 15 minutes" : "Пауза на 15 минут"); activated => { root.pause-minutes(root.paused ? 0 : 15); } }
+            MenuItem { title: root.english ? "Hide companion" : "Скрыть маскота"; activated => { root.toggle-pet(); } }
+            MenuSeparator {}
+            MenuItem { title: root.english ? "Exit" : "Выйти"; activated => { root.quit(); } }
+        } }
+    }
+}
+export component NoticeWindow inherits Window {
+    title: "Kavychka · reminder"; width: 400px; height: 280px;
+    no-frame: true; always-on-top: true; background: transparent;
+    in property <bool> dark;
+    in property <bool> english;
+    in property <string> heading;
+    in property <string> message;
+    in property <string> confirm-label;
+    in property <int> pending;
+    callback confirmed;
+    callback settings;
+    callback silence;
+    property <bool> scheme: root.dark;
+    init => { Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light; }
+    changed scheme => { Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light; }
+    Rectangle {
+        background: root.dark ? #20232c : white; border-color: root.dark ? #41495f : #d9def0; border-width: 1px; border-radius: 14px;
+        VerticalLayout { padding: 20px; spacing: 12px;
+            Text { height: 30px; text: root.heading; color: root.dark ? #a1b0ff : #4d60bd; font-family: "Segoe UI"; font-size: 17px; font-weight: 600; overflow: elide; }
+            Text { height: 108px; text: root.message; wrap: word-wrap; color: root.dark ? #f1f2f6 : #242837; font-family: "Segoe UI"; font-size: 16px; vertical-alignment: center; }
+            Button { text: root.confirm-label; primary: true; clicked => { root.confirmed(); } }
+            HorizontalLayout { spacing: 12px;
+                Button { text: root.english ? "Silence" : "Остановить звук"; clicked => { root.silence(); } }
+                Button { text: root.english ? "Open app" : "В приложении"; clicked => { root.settings(); } }
+            }
+        }
+    }
+}
+export component AppTray inherits SystemTrayIcon {
+    in property <bool> registered;
+    icon: @image-url("../../design-preview/ui/quote.svg");
+    visible: false;
+    in property <bool> english;
+    in property <bool> paused;
+    in property <bool> has-pending;
+    in property <bool> pet-visible;
+    in property <bool> breakfast-done;
+    tooltip: root.paused ? (root.english ? "Kavychka · paused" : "Кавычка · пауза") : (root.english ? "Kavychka · reminders enabled" : "Кавычка · напоминания включены");
+    callback open-settings;
+    callback review;
+    callback pause-minutes(int);
+    callback stretch-now;
+    callback mark-breakfast;
+    callback toggle-pet;
+    callback quit;
+    clicked => { root.open-settings(); }
+    Menu {
+        MenuItem { title: root.english ? "Open Kavychka" : "Открыть Кавычку"; activated => { root.open-settings(); } }
+        MenuItem { title: root.english ? "Pending reminder" : "Неподтверждённое сообщение"; enabled: root.has-pending; activated => { root.review(); } }
+        MenuSeparator {}
+        MenuItem { title: root.english ? "Stretch now" : "Разминка сейчас"; activated => { root.stretch-now(); } }
+        MenuItem { title: root.english ? "I had breakfast" : "Я позавтракала / позавтракал"; enabled: !root.breakfast-done; activated => { root.mark-breakfast(); } }
+        Menu { title: root.english ? "Pause" : "Пауза";
+            MenuItem { title: root.english ? "15 minutes" : "15 минут"; activated => { root.pause-minutes(15); } }
+            MenuItem { title: root.english ? "30 minutes" : "30 минут"; activated => { root.pause-minutes(30); } }
+            MenuItem { title: root.english ? "1 hour" : "1 час"; activated => { root.pause-minutes(60); } }
+            MenuItem { title: root.english ? "Until tomorrow" : "До завтра"; activated => { root.pause-minutes(-1); } }
+        }
+        MenuItem { title: root.english ? "Resume reminders" : "Возобновить напоминания"; enabled: root.paused; activated => { root.pause-minutes(0); } }
+        MenuItem { title: root.pet-visible ? (root.english ? "Hide companion" : "Скрыть маскота") : (root.english ? "Show companion" : "Показать маскота"); activated => { root.toggle-pet(); } }
+        MenuSeparator {}
+        MenuItem { title: root.english ? "Exit" : "Выйти"; activated => { root.quit(); } }
+    }
+}

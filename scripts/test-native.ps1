@@ -20,7 +20,7 @@ foreach ($name in @('RitualCoreTests','StorageTests')) {
  } else { & $exe }
  if ($LASTEXITCODE -ne 0) { throw ($name + ' failed') }
 }
-foreach ($name in @('InstallTransactionTests','V2UiTests','LocalizationUiTests','ReminderUiTests','ReminderStateTests','ReminderStateUiTests','NativePresetTests','StartupTests','SettingsFileTests','BuiltinDaysTests','DayLibraryUiTests','ModelPreparationUiTests','PetRenderingTests')) {
+foreach ($name in @('InstallTransactionTests','V2UiTests','LocalizationUiTests','PetMenuUiTests','ReminderUiTests','ReminderStateTests','ReminderStateUiTests','NativePresetTests','StartupTests','SettingsFileTests','BuiltinDaysTests','DayLibraryUiTests','ModelPreparationUiTests','PetRenderingTests')) {
  if ($name -eq 'NativePresetTests' -and !$Ffmpeg) { Write-Output 'SKIP NativePresetTests: pass -Ffmpeg with the imageio-ffmpeg 0.6.0 Windows executable'; continue }
  $exe = Join-Path $output ($name + '.exe')
  & $compiler /nologo ('/out:' + $exe) ('/reference:' + (Join-Path $output 'Kavychka.exe')) $references (Join-Path $project ('tests\' + $name + '.cs'))
@@ -36,7 +36,7 @@ foreach ($name in @('InstallTransactionTests','V2UiTests','LocalizationUiTests',
   if ($testExit -eq 0 -and [IO.Path]::GetFullPath($fixture).StartsWith($workRoot + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -and (Split-Path -Leaf $fixture) -like 'pet-rendering-*') { Remove-Item -LiteralPath $fixture -Recurse -Force }
   if ($testExit -ne 0) { throw ('Pet rendering fixtures retained: ' + $fixture) }
  }
- elseif ($name -in @('LocalizationUiTests','ReminderUiTests','ReminderStateUiTests','DayLibraryUiTests','ModelPreparationUiTests')) {
+ elseif ($name -in @('LocalizationUiTests','PetMenuUiTests','ReminderUiTests','ReminderStateUiTests','DayLibraryUiTests','ModelPreparationUiTests')) {
   $fixture = Join-Path $workRoot ('reminder-ui-' + [Guid]::NewGuid().ToString('N'))
   & $exe --self-test --data-dir $fixture
   $testExit = $LASTEXITCODE

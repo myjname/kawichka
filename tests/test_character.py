@@ -12,6 +12,81 @@ from kavychka_local.engine import Engine
 
 
 class CharacterTests(unittest.TestCase):
+    def test_english_uses_all_six_structural_variants(self):
+        settings = dict(character_description="A concise desk companion.", swear=False, speech_language="en")
+        prompts = [messages("break", settings, variant=i)[-1]["content"] for i in range(6)]
+        self.assertEqual(len(set(prompts)), 6)
+        self.assertIn("question", prompts[2])
+
+    def test_opening_preference_tries_another_structure_without_losing_valid_text(self):
+        self._opening_preference_case([
+            "Твои плечи заслужили отдыха. Отойди от экрана.",
+            "Пять минут без монитора пойдут на пользу. Встань и пройдись.",
+        ], "Пять минут", 2)
+
+    def test_opening_preference_exhaustion_keeps_the_valid_unique_reserve(self):
+        self._opening_preference_case([
+            "Твои плечи заслужили отдыха. Отойди от экрана.",
+        ] * 6, "Твои плечи", 6)
+
+    def test_opening_reserve_cannot_bypass_hard_rejection(self):
+        self._opening_preference_case(["Пора встать и отойти от экрана."] * 6, None, 6)
+        self._opening_preference_case(["Ты успешно разобрал бумаги. Теперь отложи их."] * 6, None, 6)
+        self._opening_preference_case([
+            "Твои плечи заслужили отдыха. Отойди от экрана.",
+        ] + ["Пора встать и отойти от экрана."] * 5, "Твои плечи", 6)
+
+    def test_cancellation_does_not_return_a_style_reserve(self):
+        self._opening_preference_case(["Твои плечи заслужили отдыха. Отойди от экрана."] * 6, None, 6, cancel=True)
+
+    def test_runtime_does_not_wait_for_style_only_retries(self):
+        self._opening_preference_case(["Твои плечи заслужили отдыха. Отойди от экрана."] * 6, "Твои плечи", 1, runtime=True)
+
+    def test_later_style_request_failure_keeps_a_valid_unique_line(self):
+        for kind in (RuntimeError, OSError, ValueError):
+            with self.subTest(kind=kind):
+                self._opening_preference_case(["Твои плечи заслужили отдыха. Отойди от экрана.", kind("injected extra-request failure")], "Твои плечи", 2)
+
+    def test_cancellation_during_a_failed_style_request_does_not_publish_reserve(self):
+        self._opening_preference_case(["Твои плечи заслужили отдыха. Отойди от экрана."] * 5 + [RuntimeError("injected extra-request failure")], None, 6, cancel=True)
+
+    def _opening_preference_case(self, outputs, prefix, count, cancel=False, runtime=False):
+        from types import SimpleNamespace
+        from kavychka_local.engine import Engine
+        calls = []
+        with tempfile.TemporaryDirectory(dir=ROOT / "work") as directory:
+            store = Store(directory)
+            try:
+                store.configure({"runtime": runtime})
+                for text in ("Ты успешно разобрал бумаги. Теперь отложи их.", "Твой рабочий день насыщен. Обед подождёт?", "Твоя прогулка скоро начнётся. Жду у двери."):
+                    store.add(text, "break", "tts-0.6b", "voice")
+                class Model:
+                    def generate(self, prompt, event):
+                        calls.append(prompt)
+                        if cancel and len(calls) == 6:
+                            event.set()
+                        value = outputs[len(calls) - 1]
+                        if isinstance(value, Exception):
+                            raise value
+                        return value
+                engine = Engine(ROOT, store, SimpleNamespace(manifest={"models": {"test": {"format": "gguf"}}}))
+                engine.loaded = "test"
+                engine.model = Model()
+                engine.load = lambda *args: None
+                if cancel:
+                    from kavychka_local.downloads import Cancelled
+                    with self.assertRaises(Cancelled):
+                        engine.text("break", threading.Event(), lambda *args: None)
+                elif prefix is None:
+                    with self.assertRaises(ValueError):
+                        engine.text("break", threading.Event(), lambda *args: None)
+                else:
+                    self.assertTrue(engine.text("break", threading.Event(), lambda *args: None).startswith(prefix))
+                self.assertEqual(len(calls), count)
+                self.assertIn("ты / твой / твои", str(calls[-1]))
+            finally:
+                store.db.close()
+
     def test_preferred_name_reaches_both_reminder_languages(self):
         for language in ("ru", "en"):
             settings = {"character_description": "A dry-witted companion", "swear": False,
