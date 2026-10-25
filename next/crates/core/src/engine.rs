@@ -240,7 +240,7 @@ impl Engine {
             .state
             .pending
             .iter()
-            .filter(|n| n.events.iter().any(matches))
+            .filter(|n| (include_manual || !n.explicit) && n.events.iter().any(matches))
             .map(|n| n.key.clone())
             .collect();
         self.state.pending.retain(|n| !removed.contains(&n.key));

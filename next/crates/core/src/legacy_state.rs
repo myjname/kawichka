@@ -276,6 +276,32 @@ mod tests {
     use super::*;
     use serde_json::json;
     #[test]
+    fn legacy_manual_pending_survives_restart_with_scheduled_exercise_disabled() {
+        let utc = "2026-10-25T12:02:00Z".parse::<DateTime<Utc>>().unwrap();
+        let clock = Clock {
+            utc,
+            mono: 1000,
+            date: utc.date_naive(),
+        };
+        let mut prefs = Preferences::default();
+        prefs.schedule.exercise_enabled = false;
+        let source = crate::legacy::reconcile(&Default::default(), &Default::default()).unwrap();
+        let checkpoint = json!({"Version":1,"Category":"exercise","Text":"Saved manual exercise reminder","MessageUtc":"2026-10-25T12:00:00Z","CheckpointUtc":"2026-10-25T12:01:00Z","Pending":true,"Manual":true,"Followup":false,"Cycle":null});
+        let state = convert(&source, &checkpoint, &prefs, clock, |_, _| unreachable!()).unwrap();
+        assert_eq!(state.pending.len(), 1);
+        assert!(state.pending[0].explicit);
+        let engine = crate::engine::Engine::new(prefs, state, clock).unwrap();
+        assert_eq!(
+            engine.state.pending.len(),
+            1,
+            "scheduled exercise being disabled must not discard an explicit legacy message"
+        );
+        assert_eq!(
+            engine.state.pending[0].text,
+            "Saved manual exercise reminder"
+        );
+    }
+    #[test]
     fn breakfast_timer_crosses_midnight_but_last_meal_notification_is_not_confirmation() {
         let now = "2026-10-24T00:10:00Z".parse::<DateTime<Utc>>().unwrap();
         let clock = Clock {
