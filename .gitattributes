@@ -4,3 +4,8 @@
 *.ps1 text eol=crlf
 *.bat text eol=crlf
 *.wav binary
+
+# These original license/notice bytes are pinned by SHA-256. Do not rewrite
+# line endings on Windows checkout or on Git index normalization.
+next/licenses/** -text
+docs/dependency-notices/** -text
