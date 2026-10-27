@@ -400,32 +400,32 @@
     "sha256": "fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6"
   },
   "wheels": {
-    "cu128": [
-      {
-        "url": "https://download-r2.pytorch.org/whl/cu128/torch-2.9.1%2Bcu128-cp312-cp312-win_amd64.whl",
-        "size": 2862033275,
-        "sha256": "3a01f0b64c10a82d444d9fd06b3e8c567b1158b76b2764b8f51bfd8f535064b0",
-        "path": "torch-2.9.1+cu128-cp312-cp312-win_amd64.whl"
-      },
-      {
-        "url": "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.9.1%2Bcu128-cp312-cp312-win_amd64.whl",
-        "size": 2216960,
-        "sha256": "88896c7bfa486102439fab6c85ac834176617e9c06eb0be9074c07ee1183b47d",
-        "path": "torchaudio-2.9.1+cu128-cp312-cp312-win_amd64.whl"
-      }
-    ],
     "cpu": [
       {
-        "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-win_amd64.whl",
-        "size": 110856378,
-        "sha256": "a4e06b4f441675d26b462123c8a83e77c55f1ec8ebc081203be2db1ea8054add",
-        "path": "torch-2.9.1+cpu-cp312-cp312-win_amd64.whl"
+        "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-win_amd64.whl",
+        "size": 123996008,
+        "sha256": "c52adc3bd526ff7fc5bdcc58fc4a76e6214d09951b646ffe5256ebd7ba60cef1",
+        "path": "torch-2.14.1+cpu-cp312-cp312-win_amd64.whl"
       },
       {
-        "url": "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.9.1%2Bcpu-cp312-cp312-win_amd64.whl",
-        "size": 663086,
-        "sha256": "53dd3155b794019e8de2dc49d044f410e6bce081d23a0e6548c156f37dfc9d0d",
-        "path": "torchaudio-2.9.1+cpu-cp312-cp312-win_amd64.whl"
+        "url": "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.11.0%2Bcpu-cp312-cp312-win_amd64.whl",
+        "size": 326400,
+        "sha256": "95d517bd1a0a28dacd1c37550ced95cab64f3a7a4ef9b8219b41049388a71163",
+        "path": "torchaudio-2.11.0+cpu-cp312-cp312-win_amd64.whl"
+      }
+    ],
+    "cu126": [
+      {
+        "url": "https://download-r2.pytorch.org/whl/cu126/torch-2.14.1%2Bcu126-cp312-cp312-win_amd64.whl",
+        "size": 2602768778,
+        "sha256": "97e3bc87ea74367518b740d912a7f5259c25a3c8115bf5916abee1d53ff115a4",
+        "path": "torch-2.14.1+cu126-cp312-cp312-win_amd64.whl"
+      },
+      {
+        "url": "https://download-r2.pytorch.org/whl/cu126/torchaudio-2.11.0%2Bcu126-cp312-cp312-win_amd64.whl",
+        "size": 1519626,
+        "sha256": "ca5b7815c6952c79c65dce9a78eb96be8b73a8b291f82ca473812a910cdc9fbc",
+        "path": "torchaudio-2.11.0+cu126-cp312-cp312-win_amd64.whl"
       }
     ]
   },
@@ -485,5 +485,26 @@
         "revision": "e58f28804528831904c3b6f2c0e473f346223433"
       }
     ]
+  },
+  "cuda_wheel_set": "cu126",
+  "runtime_profile": "inference-20261027-torch2141-tf510-qwen3",
+  "qwen_inference": {
+    "url": "https://files.pythonhosted.org/packages/31/01/95f3ae26f5b7eb2105f69ad2c15af5a28b9ebdd1258a0b27541f5ebd6225/qwen_tts-0.1.1-py3-none-any.whl",
+    "size": 113529,
+    "sha256": "11a290d8dabc7ef91a90c54478c8ab19b3edb1d85c0882313721892bdc4af15d",
+    "path": "qwen_tts-0.1.1-py3-none-any.whl",
+    "version": "0.1.1.post3",
+    "derived_sha256": "f1ee5b5a0482fe9cc45e133f834a60f9869e5c1feafe0b3dd17da29121976475"
+  },
+  "runtime_versions": {
+    "torch": "2.14.1",
+    "torchaudio": "2.11.0",
+    "transformers": "5.10.0",
+    "accelerate": "1.15.0",
+    "pillow": "13.0.0",
+    "huggingface-hub": "1.31.0",
+    "tokenizers": "0.22.2",
+    "hf-xet": "1.5.2",
+    "kavychka-qwen-tts-inference": "0.1.1.post3"
   }
 }

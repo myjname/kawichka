@@ -45,6 +45,7 @@ fn launch(root: &Path, background: bool, verify: Option<&Path>) -> Result<()> {
 // The stable root executable only dispatches. Updated transaction/recovery code
 // always runs from an immutable version directory, without replacing a running EXE.
 fn delegate(root: &Path, args: &[std::ffi::OsString]) -> Result<()> {
+    kavychka_maintenance::launch_context::ensure_paths(&[root])?;
     let uninstall = args.first().is_some_and(|s| s == "--uninstall");
     let mut version = if uninstall {
         Some(kavychka_maintenance::removal::current(root)?.version)

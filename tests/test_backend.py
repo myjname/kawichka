@@ -19,7 +19,30 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 from kavychka_local.store import Store, cache_key
 from kavychka_local.jobs import Jobs, distribution
-from kavychka_local.downloads import Cancelled, checkpoint, download
+from kavychka_local.downloads import Cancelled, Components, checkpoint, download
+
+class InferenceIntegrityTests(unittest.TestCase):
+    def test_model_loader_rejects_equal_size_mutation_and_supports_cancellation(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "work") as directory:
+            root = Path(directory)
+            app = root / "app"; (app / "assets").mkdir(parents=True)
+            model = root / "models/fixture"; model.mkdir(parents=True)
+            target = model / "config.json"; target.write_bytes(b"trusted")
+            manifest = {"models": {"fixture": {"files": [{"path": "config.json", "size": 7, "sha256": hashlib.sha256(b"trusted").hexdigest()}]}}}
+            (app / "assets/components.json").write_text(json.dumps(manifest))
+            class Settings:
+                def settings(self): return {"model_paths": {}}
+            components = Components(app, root, Settings())
+            event = threading.Event()
+            components.verify_inference("fixture", event, lambda *args: None)
+            target.write_bytes(b"changed")
+            self.assertTrue(components.ready("fixture"))
+            with self.assertRaisesRegex(ValueError, "integrity"):
+                components.verify_inference("fixture", event, lambda *args: None)
+            self.assertEqual(target.read_bytes(), b"changed")
+            event.set()
+            with self.assertRaises(Cancelled):
+                components.verify_inference("fixture", event, lambda *args: None)
 
 class StoreFixture:
     def setUp(self):
@@ -215,6 +238,29 @@ class DailyTests(StoreFixture, unittest.TestCase):
         self.assertEqual(1, result.count("lunch"))
 
 class DownloadTests(unittest.TestCase):
+    def test_tls_issuer_failure_retries_with_verified_ca_bundle(self):
+        import ssl
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from kavychka_local.downloads import open_download
+        request = urllib.request.Request("https://example.invalid/pinned.zip")
+        response = object(); context = ssl.create_default_context()
+        error = urllib.error.URLError(ssl.SSLCertVerificationError("missing system issuer"))
+        with patch.dict(sys.modules, {"certifi": SimpleNamespace(where=lambda: "qualified-ca.pem")}), patch("ssl.create_default_context", return_value=context) as create, patch("urllib.request.urlopen", side_effect=[error, response]) as fetch:
+            self.assertIs(response, open_download(request))
+        create.assert_called_once_with(cafile="qualified-ca.pem")
+        self.assertIs(context, fetch.call_args.kwargs["context"])
+        self.assertEqual(ssl.CERT_REQUIRED, context.verify_mode)
+        self.assertTrue(context.check_hostname)
+
+    def test_connection_failure_does_not_trigger_a_tls_workaround(self):
+        from unittest.mock import patch
+        from kavychka_local.downloads import open_download
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")) as fetch:
+            with self.assertRaises(urllib.error.URLError):
+                open_download(urllib.request.Request("https://example.invalid/pinned.zip"))
+        self.assertEqual(1, fetch.call_count)
+
     def test_resume_cancel_checksum_and_server_ignoring_range(self):
         content = b"content" * 200000
         observed = []

@@ -31,7 +31,7 @@
     "install_journal": 1,
     "delivery_journal": 1
   },
-  "components_sha256": "97fcf2628064c2e6b57195792d49f9630d6e4003786f2b7d6b053f3f188a35cd",
+  "components_sha256": "3a772d18142dc60e2321090807a0a77ba97cbee989b1058c968fddf5499e5439",
   "runtimes": {
     "python": "3.12.10-amd64",
     "llama_cpu": "b11719-cpu-x64-v1",

@@ -6,6 +6,7 @@ pub fn prepare(data: &Path, common: &Path) -> Result<()> {
     prepare_from(data, common, None)
 }
 fn prepare_from(data: &Path, common: &Path, legacy: Option<&Path>) -> Result<()> {
+    kavychka_maintenance::launch_context::ensure_paths(&[data, common])?;
     if data != common.join(".kavychka-next") {
         return Err("invalid shared generation path".into());
     }
@@ -353,6 +354,7 @@ fn render(evidence: PathBuf) -> Result<()> {
         .map_err(Into::into)
 }
 fn show(exe: PathBuf) -> Result<()> {
+    kavychka_maintenance::launch_context::require_unpacked()?;
     crate::shell::select_backend(false)
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?;
     let manifest = package::manifest(&exe)?;

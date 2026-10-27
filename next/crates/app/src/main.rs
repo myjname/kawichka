@@ -646,6 +646,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             smoke::run(args.data, output)
         };
     }
+    kavychka_maintenance::launch_context::ensure_paths(&[&args.data]).map_err(|e| e.to_string())?;
     args.data = kavychka_storage::transfer::resolve(&args.data)?;
     if let Some(root) = std::env::var_os("KAVYCHKA_INSTALL_ROOT") {
         let current = kavychka_maintenance::install::current(&PathBuf::from(root))

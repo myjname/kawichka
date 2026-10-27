@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
-from kavychka_local.downloads import BUILD_TOOLS, Cancelled, Components
+from kavychka_local.downloads import BUILD_TOOLS, SITE_OWNER, Cancelled, Components
 
 
 class InstallerTests(unittest.TestCase):
@@ -20,6 +20,11 @@ class InstallerTests(unittest.TestCase):
         self.components = Components(ROOT, self.root, None)
         self.event = threading.Event()
         self.progress = lambda *args: None
+        stub = self.root / "inference.whl"; stub.write_bytes(b"wheel fixture")
+        self.components.manifest["qwen_inference"].pop("derived_sha256", None)
+        for fixture in (patch.object(self.components, "runtime_python", return_value=sys.executable),
+                        patch("kavychka_local.qwen_package.build", return_value=stub)):
+            fixture.start(); self.addCleanup(fixture.stop)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -29,16 +34,33 @@ class InstallerTests(unittest.TestCase):
         def run(command, *args):
             self.assertFalse((self.root / "runtime-ok.json").exists())
             calls.append(command)
-            return "2.9.1"
+            return json.dumps(dict(torch="2.14.1", transformers="5.10.0"))
         with patch("kavychka_local.downloads.download"), patch.object(self.components, "run_install", side_effect=run):
             self.components.install_runtime(self.event, self.progress, True)
-        self.assertEqual(5, len(calls))
+        self.assertEqual(7, len(calls))
         self.assertTrue(set(BUILD_TOOLS) <= set(calls[1]))
         self.assertIn("--only-binary=:all:", calls[1])
-        self.assertIn("--no-build-isolation", calls[3])
-        self.assertIn("requirements.txt", calls[3][-1])
-        self.assertIn("import torch,torchaudio", calls[4][-1])
-        self.assertEqual("2.9.1", json.loads((self.root / "runtime-ok.json").read_text())["torch"])
+        self.assertIn("uninstall", calls[2])
+        self.assertIn("gradio", calls[2])
+        self.assertIn("--no-build-isolation", calls[4])
+        self.assertIn("requirements.txt", calls[4][-1])
+        self.assertEqual("check", calls[5][-1])
+        self.assertTrue(any(str(arg).endswith("health_check.py") for arg in calls[6]))
+        self.assertIn("--inference-runtime", calls[6])
+        marker = json.loads((self.root / "runtime-ok.json").read_text())
+        self.assertEqual("2.14.1", marker["torch"])
+        self.assertEqual(self.components.manifest["runtime_profile"], marker["profile"])
+
+    def test_foreign_python_is_refused_without_modifying_an_environment(self):
+        with self.assertRaisesRegex(ValueError, "original environment retained"):
+            Components.runtime_python(self.components)
+
+    def test_mismatched_derived_wheel_starts_no_installation(self):
+        self.components.manifest["qwen_inference"]["derived_sha256"] = "0" * 64
+        with patch("kavychka_local.downloads.download"), patch.object(self.components, "run_install") as run:
+            with self.assertRaisesRegex(ValueError, "Derived inference wheel"):
+                self.components.install_runtime(self.event, self.progress, False)
+            run.assert_not_called()
 
     def test_failed_reinstall_removes_old_runtime_marker(self):
         (self.root / "runtime-ok.json").write_text("{}")
@@ -73,6 +95,41 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "import failed"):
                 self.components.install_cosy(self.event, self.progress)
         self.assertFalse((folder / "verified.json").exists())
+
+    def test_cosy_replaces_the_layer_without_retaining_old_transformers(self):
+        self.components.manifest["cosy_runtime"]["files"] = []
+        old = self.root / "cosy/site/transformers"; old.mkdir(parents=True)
+        (old / "stale.py").write_text("old layer")
+        def install(command, *unused):
+            if "--target" in command:
+                stage = Path(command[command.index("--target") + 1])
+                (stage / "new-package.txt").write_text("new layer")
+        with patch.object(self.components, "run_install", side_effect=install), patch.object(self.components, "cosy_ready", return_value=True):
+            self.components.install_cosy(self.event, self.progress)
+        self.assertFalse(old.exists())
+        self.assertEqual("new layer", (self.root / "cosy/site/new-package.txt").read_text())
+        self.assertFalse(list((self.root / "cosy").glob("site-*-*")))
+
+    def test_failed_staged_cosy_check_keeps_the_old_layer_and_cleans_stage(self):
+        self.components.manifest["cosy_runtime"]["files"] = []
+        old = self.root / "cosy/site/transformers"; old.mkdir(parents=True)
+        (old / "stale.py").write_text("old layer")
+        with patch.object(self.components, "run_install", side_effect=["", "", RuntimeError("check failed")]):
+            with self.assertRaisesRegex(RuntimeError, "check failed"):
+                self.components.install_cosy(self.event, self.progress)
+        self.assertEqual("old layer", (old / "stale.py").read_text())
+        self.assertFalse(list((self.root / "cosy").glob("site-install-*")))
+
+    def test_retry_cleans_only_marker_owned_abandoned_stages(self):
+        parent = self.root / "cosy"; parent.mkdir()
+        owned = parent / "site-install-owned"; owned.mkdir()
+        (owned / ".kavychka-site.owner").write_bytes(SITE_OWNER)
+        (owned / "partial-package.txt").write_text("interrupted installation")
+        unknown = parent / "site-install-unknown"; unknown.mkdir()
+        (unknown / "retain.txt").write_text("not owned")
+        self.components.clean_old_sites(parent, "site-install-*")
+        self.assertFalse(owned.exists())
+        self.assertEqual("not owned", (unknown / "retain.txt").read_text())
 
     def test_incomplete_cosy_files_do_not_leave_ready_marker(self):
         self.components.manifest["cosy_runtime"]["files"] = []

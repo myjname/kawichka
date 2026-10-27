@@ -198,13 +198,14 @@ def run(request):
         runtime_marker = (managed if managed_python else components) / "runtime-ok.json"
         try:
             marker = json.loads(runtime_marker.read_text(encoding="utf-8"))
-            full_runtime = isinstance(marker, dict) and (not gpu or marker.get("gpu") is True or "+cu" in marker.get("torch", ""))
+            profile = catalog.manifest.get("runtime_profile")
+            full_runtime = isinstance(marker, dict) and (not profile or marker.get("profile") == profile) and (not gpu or marker.get("gpu") is True or "+cu" in marker.get("torch", ""))
         except (OSError, ValueError, TypeError):
             full_runtime = False
         if formats - {"gguf"} and (repairing or not full_runtime):
             # Downloaded wheels, unpacked packages and temporary installation
             # space coexist. This is a conservative peak, not just final size.
-            required += sum(f["size"] for f in catalog.manifest["wheels"]["cu128" if gpu else "cpu"]) * 3 + 2_000_000_000
+            required += sum(f["size"] for f in installer.runtime_wheels(gpu)) * 3 + 2_000_000_000
         if "gguf" in formats and (repairing or not catalog.llama_ready(gpu=installer.use_gpu("llama-runtime"))):
             required += sum(f["size"] for f in catalog.manifest["llama_runtime" if installer.use_gpu("llama-runtime") else "llama_cpu_runtime"]["files"]) * 3
         if "cosyvoice3" in formats and (repairing or not catalog.cosy_ready()):

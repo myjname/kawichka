@@ -1,6 +1,7 @@
 //! Versioned installation, data-preserving recovery, and authenticated release origin.
 pub mod diagnostics;
 pub mod install;
+pub mod launch_context;
 pub mod package;
 pub mod portable;
 pub mod registration;

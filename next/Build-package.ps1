@@ -43,6 +43,7 @@ foreach($name in $backend){
     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))|Out-Null
     Copy-Item -LiteralPath (Join-Path $projectRoot $relative) -Destination $target
 }
+& (Join-Path $PSScriptRoot 'tools/Bundle-backend.ps1') -Stage $stage
 foreach($relative in @('assets/components.json','assets/character.json','assets/voice/profile.json','assets/voice/default-en.wav')){
     $target=Join-Path $stage $relative
     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))|Out-Null

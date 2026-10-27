@@ -53,6 +53,7 @@ pub fn locate(local: &Path) -> Result<Option<Locator>> {
     Ok(Some(l))
 }
 pub fn register_locator(local: &Path, root: &Path, current: &Current) -> Result<()> {
+    crate::launch_context::ensure_paths(&[local, root, &current.common])?;
     validate(current)?;
     if fs::read(root.join("install.owner"))? != b"Kavychka.Next.v1\n" {
         return Err("unknown installation owner".into());
@@ -109,6 +110,7 @@ fn disjoint(root: &Path, common: &Path) -> Result<()> {
     Ok(())
 }
 pub fn request_recovery_limit(root: &Path, common: &Path, bytes: u64) -> Result<()> {
+    crate::launch_context::ensure_paths(&[root, common])?;
     let options = kavychka_core::preferences::DesktopOptions {
         recovery_limit_bytes: bytes,
         ..Default::default()
@@ -202,6 +204,7 @@ fn verify_rescue(from: &Path, require_sqlite: bool) -> Result<()> {
     Ok(())
 }
 pub fn owned(root: &Path) -> Result<Guard> {
+    crate::launch_context::ensure_paths(&[root])?;
     if !root.is_absolute() {
         return Err("absolute install root required".into());
     }
@@ -255,6 +258,7 @@ pub fn current(root: &Path) -> Result<Option<Current>> {
         return Ok(None);
     }
     let c: Current = serde_json::from_slice(&fs::read(p)?)?;
+    crate::launch_context::ensure_paths(&[&c.common, &c.data])?;
     validate(&c)?;
     Ok(Some(c))
 }
@@ -562,6 +566,7 @@ pub fn apply_with_source(
     legacy: Option<&Path>,
     mut probe: impl FnMut(&Path, &Current) -> Result<()>,
 ) -> Result<Current> {
+    crate::launch_context::ensure_paths(&[root, common])?;
     let _guard = owned(root)?;
     disjoint(root, common)?;
     recover(root)?;
@@ -708,6 +713,7 @@ pub fn apply_with_source(
     attempt
 }
 pub fn probe(version_root: &Path, current: &Current) -> Result<()> {
+    crate::launch_context::ensure_paths(&[version_root, &current.common, &current.data])?;
     let mut command = std::process::Command::new(version_root.join("app.exe"));
     command
         .arg("--prepare-install")

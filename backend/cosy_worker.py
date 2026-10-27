@@ -15,9 +15,12 @@ parser.add_argument("--model", type=Path)
 parser.add_argument("--runtime", type=Path)
 parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
 parser.add_argument("--check-only", action="store_true")
+parser.add_argument("--site", type=Path, help="Private staged dependency layer, check-only")
 args = parser.parse_args()
 root = args.data.resolve()
 resources = (args.runtime or root).resolve()
+if args.site and not args.check_only:
+    raise ValueError("A staged dependency layer is only valid for installation checks")
 if args.device == "cpu":
     # An empty value removes the native variable on Windows while os.environ
     # still shows it as empty: Python/NVML and CUDA can then disagree. -1 hides
@@ -30,7 +33,7 @@ def offline(*unused, **kwargs):
 socket.socket.connect = offline
 
 with contextlib.redirect_stdout(sys.stderr):
-    sys.path[:0] = [str(resources / "cosy/Whisper"), str(resources / "cosy/site"), str(resources / "cosy/CosyVoice"), str(resources / "cosy/Matcha-TTS")]
+    sys.path[:0] = [str(resources / "cosy/Whisper"), str(args.site or resources / "cosy/site"), str(resources / "cosy/CosyVoice"), str(resources / "cosy/Matcha-TTS")]
     import numpy as np
     import soundfile as sf
     import torch

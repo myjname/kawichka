@@ -3,6 +3,13 @@ import argparse
 import json
 import sqlite3
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+if __name__ == "__main__" and "--inference-runtime" in sys.argv:
+    import runpy
+    runpy.run_path(str(Path(__file__).with_name("runtime_check.py")), run_name="__main__")
+    raise SystemExit(0)
 
 from kavychka_local.store import Store
 

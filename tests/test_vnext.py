@@ -371,7 +371,7 @@ class QwenReferenceTests(unittest.TestCase):
             folder = root / "presets/voice1"; folder.mkdir(parents=True)
             import shutil
             shutil.copy2(ROOT / "assets/voice/default-en.wav", folder / "reference.wav")
-            components = SimpleNamespace(manifest={"models": {"tts-0.6b": {"format": "qwen"}}}, ready=lambda key: True, path=lambda key: root / "model", voice_device=lambda: "cpu")
+            components = SimpleNamespace(manifest={"models": {"tts-0.6b": {"format": "qwen"}}}, ready=lambda key: True, path=lambda key: root / "model", voice_device=lambda: "cpu", verify_inference=Mock())
             hashes = []
             try:
                 for transcript in ("", "Exact reference words"):
@@ -380,13 +380,17 @@ class QwenReferenceTests(unittest.TestCase):
                     engine = Engine(ROOT, store, components); hashes.append(engine.profile_hash)
                     model = SimpleNamespace(create_voice_clone_prompt=Mock(return_value=[]))
                     fake_torch = SimpleNamespace(set_num_threads=Mock(), cuda=SimpleNamespace(is_available=lambda: False), float32="float32")
-                    fake_qwen = SimpleNamespace(Qwen3TTSModel=SimpleNamespace(from_pretrained=lambda *a, **kw: model))
+                    loader = Mock(return_value=model)
+                    fake_qwen = SimpleNamespace(Qwen3TTSModel=SimpleNamespace(from_pretrained=loader))
                     with patch.dict(sys.modules, {"torch": fake_torch, "qwen_tts": fake_qwen}):
                         engine.load("tts-0.6b", threading.Event(), lambda *unused: None)
+                    self.assertFalse(loader.call_args.kwargs["trust_remote_code"])
+                    self.assertTrue(loader.call_args.kwargs["use_safetensors"])
                     prompt = model.create_voice_clone_prompt.call_args.kwargs
                     self.assertEqual(not bool(transcript), prompt["x_vector_only_mode"])
                     self.assertEqual(transcript or None, prompt["ref_text"])
                 self.assertNotEqual(*hashes)
+                self.assertEqual(components.verify_inference.call_count, 2)
             finally:
                 store.db.close()
 

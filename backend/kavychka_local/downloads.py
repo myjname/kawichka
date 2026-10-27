@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import threading
+import uuid
 import urllib.error
 import urllib.request
 import zipfile
@@ -12,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 BUILD_TOOLS = ("setuptools==80.9.0", "wheel==0.45.1", "packaging==26.3")
+SITE_OWNER = b"kavychka-inference-site-v1\n"
 
 class Cancelled(Exception):
     pass
@@ -26,6 +28,24 @@ def digest(path):
         for block in iter(lambda: source.read(4 * 1024 * 1024), b""):
             value.update(block)
     return value.hexdigest()
+
+
+def open_download(request):
+    try:
+        return urllib.request.urlopen(request, timeout=25)
+    except urllib.error.URLError as error:
+        import ssl
+        if not isinstance(error.reason, ssl.SSLCertVerificationError):
+            raise
+        # Some Windows root stores lack a current public issuer. Retry with
+        # the qualified CA bundle, keeping certificate/hostname verification.
+        # Before the initial Python bootstrap certifi may not be installed.
+        try:
+            import certifi
+        except ImportError:
+            raise error
+        context = ssl.create_default_context(cafile=certifi.where())
+        return urllib.request.urlopen(request, timeout=25, context=context)
 
 def download(url, path, size, sha256, event, progress):
     path = Path(path)
@@ -43,7 +63,7 @@ def download(url, path, size, sha256, event, progress):
     if offset:
         headers["Range"] = f"bytes={offset}-"
     try:
-        response = urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=25)
+        response = open_download(urllib.request.Request(url, headers=headers))
     except urllib.error.HTTPError as error:
         if error.code == 416 and offset == size and digest(temporary) == sha256:
             temporary.replace(path)
@@ -102,6 +122,16 @@ class Components:
         chosen = self.store.settings()["device"]
         return "cpu" if chosen == "auto" and not self.use_gpu("runtime") else chosen
 
+    def runtime_wheels(self, gpu):
+        return self.manifest["wheels"][self.manifest.get("cuda_wheel_set", "cu128") if gpu else "cpu"]
+
+    def runtime_python(self):
+        self.check_package_path(self.root / "runtime")
+        python = Path(os.path.realpath(sys.executable))
+        if python != (self.root / "runtime/python.exe").resolve():
+            raise ValueError("Install or repair must run in the managed Python; original environment retained")
+        return str(python)
+
     def path(self, key):
         custom = self.store.settings()["model_paths"].get(key)
         return Path(custom) if custom else self.root / "models" / key
@@ -109,6 +139,29 @@ class Components:
     def ready(self, key):
         path = self.path(key)
         return all((path / f["path"]).is_file() and (path / f["path"]).stat().st_size == f["size"] for f in self.manifest["models"][key]["files"])
+
+    def verify_inference(self, key, event, progress):
+        """Only catalog-pinned configurations/checkpoints may reach ML loaders.
+
+        Size checks used by the UI are insufficient for pickle/YAML/config
+        consumers. Run cancellable hashing in the worker before each load;
+        never download or alter a custom/previous model directory here.
+        """
+        folder = self.path(key)
+        for item in self.manifest["models"][key]["files"]:
+            checkpoint(event)
+            path = folder / item["path"]
+            if not path.is_file() or path.stat().st_size != item["size"]:
+                raise ValueError("Model files are incomplete; check or repair the selected model")
+            progress("Проверка модели / Verifying model: " + path.name, 0, 0)
+            value = hashlib.sha256()
+            with path.open("rb") as source:
+                for block in iter(lambda: source.read(4 * 1024 * 1024), b""):
+                    checkpoint(event)
+                    value.update(block)
+            if value.hexdigest() != item["sha256"]:
+                raise ValueError("Model integrity check failed; check or repair the selected model")
+        checkpoint(event)
 
     def llama_executable(self):
         return self.root / "llama" / "llama-server.exe"
@@ -132,8 +185,12 @@ class Components:
 
     def cosy_ready(self):
         try:
-            return (json.loads((self.root / "cosy/verified.json").read_text(encoding="utf-8"))["revision"] == self.manifest["cosy_runtime"]["revision"]
-                    and (self.root / "cosy/site/transformers/__init__.py").is_file()
+            saved = json.loads((self.root / "cosy/verified.json").read_text(encoding="utf-8"))
+            profile = self.manifest.get("runtime_profile")
+            return (saved["revision"] == self.manifest["cosy_runtime"]["revision"]
+                    and (not profile or saved.get("profile") == profile)
+                    and ((self.root / "cosy/site/transformers/__init__.py").is_file()
+                         or (self.root / "runtime/Lib/site-packages/transformers/__init__.py").is_file())
                     and (self.root / "cosy/site/numpy/__init__.py").is_file()
                     and (self.root / "cosy/Whisper/whisper/__init__.py").is_file()
                     and (self.root / "cosy/CosyVoice/cosyvoice/cli/cosyvoice.py").is_file()
@@ -149,10 +206,11 @@ class Components:
             if not isinstance(marker, dict) or ("gpu" in marker and not isinstance(marker["gpu"], bool)):
                 raise ValueError("Invalid runtime marker")
             runtime_gpu = marker["gpu"] is True if "gpu" in marker else "+cu" in marker.get("torch", "")
-            runtime = (not speech_gpu or runtime_gpu) and all(importlib.util.find_spec(name) for name in ("torch", "qwen_tts", "soundfile", "transformers", "tzdata"))
+            profile = self.manifest.get("runtime_profile")
+            runtime = (not profile or marker.get("profile") == profile) and (not speech_gpu or runtime_gpu) and all(importlib.util.find_spec(name) for name in ("torch", "qwen_tts", "soundfile", "transformers", "tzdata"))
         except (OSError, ValueError, TypeError):
             runtime = False
-        runtime_bytes = sum(file["size"] for file in self.manifest["wheels"]["cu128" if speech_gpu else "cpu"]) + 200000000
+        runtime_bytes = sum(file["size"] for file in self.runtime_wheels(speech_gpu)) + 200000000
         items = [{"id": "runtime", "name": "Python + PyTorch + Qwen runtime", "installed": bool(runtime), "bytes": runtime_bytes, "disk_bytes": 7000000000 if speech_gpu else 2000000000}]
         gpu = self.use_gpu("llama-runtime")
         size = sum(f["size"] for f in self.manifest["llama_runtime" if gpu else "llama_cpu_runtime"]["files"])
@@ -215,7 +273,9 @@ class Components:
     def install_cosy(self, event, progress):
         spec = self.manifest["cosy_runtime"]
         folder = self.root / "cosy"
+        self.check_package_path(folder)
         folder.mkdir(exist_ok=True)
+        self.clean_old_sites(folder, "site-install-*")
         (folder / "verified.json").unlink(missing_ok=True)
         for file in spec["files"]:
             archive_path = self.root / "downloads" / file["path"]
@@ -238,20 +298,94 @@ class Components:
                    PYTHONDONTWRITEBYTECODE="1", PYTHONIOENCODING="utf-8")
         # Windows AppData virtualization can resolve a package directory and its
         # launcher files differently. Start Python by its real executable path.
-        python = os.path.realpath(sys.executable)
+        python = self.runtime_python()
         self.prepare_build_tools(python, env, event, progress, "cosy-install.log")
-        command = [python, "-m", "pip", "install", "--no-cache-dir", "--no-compile", "--no-deps", "--upgrade", "--no-build-isolation",
-                   "--target", str(folder / "site"), "-r", str(self.app_root / "backend/requirements-cosy.txt")]
-        self.run_install(command, env, event, progress, "cosy-install.log")
-        command = [python, "-B", str(self.app_root / "backend/cosy_worker.py"), "--data", str(self.root), "--check-only"]
-        self.run_install(command, env, event, progress, "cosy-install.log")
-        checkpoint(event)
-        (folder / "verified.json").write_text(json.dumps({"revision": spec["revision"]}), encoding="utf-8")
-        if not self.cosy_ready():
+        # A new layer must not retain the old Transformers/tokenizers packages
+        # that would shadow the upgraded shared runtime after --target updates.
+        site = folder / "site"
+        stage = folder / ("site-install-" + uuid.uuid4().hex)
+        backup = folder / ("site-before-" + uuid.uuid4().hex)
+        stage.mkdir()
+        (stage / ".kavychka-site.owner").write_bytes(SITE_OWNER)
+        published = moved = False
+        try:
+            command = [python, "-m", "pip", "install", "--no-cache-dir", "--no-compile", "--no-deps", "--no-build-isolation",
+                       "--target", str(stage), "-r", str(self.app_root / "backend/requirements-cosy.txt")]
+            self.run_install(command, env, event, progress, "cosy-install.log")
+            command = [python, "-B", str(self.app_root / "backend/cosy_worker.py"), "--data", str(self.root), "--check-only", "--site", str(stage)]
+            self.run_install(command, env, event, progress, "cosy-install.log")
+            checkpoint(event)
+            if site.exists():
+                self.check_site_tree(site, folder)
+                (site / ".kavychka-site.owner").write_bytes(SITE_OWNER)
+                site.rename(backup); moved = True
+            stage.rename(site); published = True
+            (folder / "verified.json").write_text(json.dumps({"revision": spec["revision"], "profile": self.manifest.get("runtime_profile")}), encoding="utf-8")
+            if not self.cosy_ready():
+                raise ValueError("Установка среды CosyVoice неполна")
+        except BaseException:
             (folder / "verified.json").unlink(missing_ok=True)
-            raise ValueError("Установка среды CosyVoice неполна")
+            if published:
+                self.remove_site_tree(site, folder)
+            if moved:
+                backup.rename(site)
+            raise
+        finally:
+            if stage.exists():
+                self.remove_site_tree(stage, folder)
+        if moved:
+            self.remove_site_tree(backup, folder)
+        self.clean_old_sites(folder, "site-before-*")
         for file in spec["files"]: (self.root / "downloads" / file["path"]).unlink(missing_ok=True)
         return {"installed": "cosy-runtime"}
+
+    @staticmethod
+    def check_package_path(path):
+        for item in [Path(path).absolute(), *Path(path).absolute().parents]:
+            try:
+                info = item.lstat()
+            except FileNotFoundError:
+                continue
+            if item.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400:
+                raise ValueError("Linked inference package directory retained")
+
+    @staticmethod
+    def check_site_tree(path, parent):
+        # Exact managed package directory only; never models, presets or links.
+        absolute, base = Path(path).absolute(), Path(parent).resolve()
+        Components.check_package_path(parent)
+        if absolute.parent.resolve() != base or not (absolute.name == "site" or absolute.name.startswith(("site-install-", "site-before-"))):
+            raise ValueError("Unsafe inference package directory")
+        count = 0
+        def visit(item, depth):
+            nonlocal count
+            count += 1
+            if depth > 64 or count > 100000:
+                raise ValueError("Inference package tree exceeds safe bounds")
+            info = item.lstat()
+            if item.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400:
+                raise ValueError("Linked inference package directory retained")
+            if item.is_dir():
+                for child in item.iterdir():
+                    visit(child, depth + 1)
+        visit(absolute, 0)
+
+    @classmethod
+    def clean_old_sites(cls, parent, pattern):
+        for path in parent.glob(pattern):
+            try:
+                cls.check_site_tree(path, parent)
+                owned = (path / ".kavychka-site.owner").read_bytes() == SITE_OWNER
+            except (OSError, ValueError):
+                continue
+            if owned:
+                cls.remove_site_tree(path, parent)
+
+    @classmethod
+    def remove_site_tree(cls, path, parent):
+        import shutil
+        cls.check_site_tree(path, parent)
+        shutil.rmtree(path)
 
     def prepare_build_tools(self, python, env, event, progress, log_name):
         progress("Подготовка инструментов сборки Python", 0, 0)
@@ -321,11 +455,12 @@ class Components:
     def install_runtime(self, event, progress, gpu):
         if "torch" in sys.modules:
             raise ValueError("Для замены среды сначала перезапустите локальный процесс через кнопку установки в приложении.")
+        python = self.runtime_python()
         (self.root / "runtime-ok.json").unlink(missing_ok=True)
         bootstrap = self.manifest["pip"]
         target = self.root / "downloads" / "get-pip.py"
         download(bootstrap["url"], target, bootstrap["size"], bootstrap["sha256"], event, progress)
-        wheels = self.manifest["wheels"]["cu128" if gpu else "cpu"]
+        wheels = self.runtime_wheels(gpu)
         total = sum(f["size"] for f in wheels)
         completed = 0
         wheel_paths = []
@@ -337,12 +472,20 @@ class Components:
             completed += wheel["size"]
         temporary = self.root / "tmp"; temporary.mkdir(exist_ok=True)
         env = dict(os.environ, TMP=str(temporary), TEMP=str(temporary), PIP_CACHE_DIR=str(self.root / "pip-cache"), PYTHONDONTWRITEBYTECODE="1", PIP_DISABLE_PIP_VERSION_CHECK="1", PYTHONIOENCODING="utf-8")
-        python = os.path.realpath(sys.executable)
+        from .qwen_package import build
+        qwen = self.manifest["qwen_inference"]
+        upstream = self.root / "downloads" / qwen["path"]
+        download(qwen["url"], upstream, qwen["size"], qwen["sha256"], event, progress)
+        inference_wheel = build(upstream, self.root / "downloads/inference")
+        if qwen.get("derived_sha256") and digest(inference_wheel) != qwen["derived_sha256"]:
+            raise ValueError("Derived inference wheel integrity check failed")
         commands = [
             [python, str(target), "--no-cache-dir", "--no-compile", "pip==26.2.1"],
             [python, "-m", "pip", "install", "--no-cache-dir", "--no-compile", "--only-binary=:all:", "--upgrade", *BUILD_TOOLS],
+            [python, "-m", "pip", "uninstall", "--yes", "qwen-tts", "gradio", "gradio-client", "hf-gradio"],
             [python, "-m", "pip", "install", "--no-cache-dir", "--no-compile", "--force-reinstall", "--no-deps"] + wheel_paths,
-            [python, "-m", "pip", "install", "--no-cache-dir", "--no-compile", "--no-build-isolation", "-r", str(self.app_root / "backend" / "requirements.txt")],
+            [python, "-m", "pip", "install", "--no-cache-dir", "--no-compile", "--no-build-isolation", str(inference_wheel), "-r", str(self.app_root / "backend" / "requirements.txt")],
+            [python, "-m", "pip", "check"],
         ]
         for command in commands:
             checkpoint(event)
@@ -350,10 +493,11 @@ class Components:
             self.run_install(command, env, event, progress)
         import importlib
         importlib.invalidate_caches()
-        check = self.run_install([python, "-B", "-c", "import torch,torchaudio,qwen_tts,soundfile,transformers,tzdata; print(torch.__version__)"],
+        check = self.run_install([python, "-B", str(self.app_root / "backend/health_check.py"), "--inference-runtime"] + (["--gpu"] if gpu else []),
                                  env, event, progress)
         checkpoint(event)
-        (self.root / "runtime-ok.json").write_text(json.dumps({"torch": check.splitlines()[-1], "gpu": gpu}), encoding="utf-8")
+        checked = json.loads(check.splitlines()[-1])
+        (self.root / "runtime-ok.json").write_text(json.dumps(dict(checked, gpu=gpu, profile=self.manifest["runtime_profile"])), encoding="utf-8")
         return {"installed": "runtime"}
 
 

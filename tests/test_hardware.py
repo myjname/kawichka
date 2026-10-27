@@ -163,7 +163,7 @@ class CpuInstallationTests(unittest.TestCase):
         self.assertFalse((self.root / "llama/verified.json").exists())
 
     def test_runtime_status_requires_cuda_wheels_only_when_gpu_requested(self):
-        (self.root / "runtime-ok.json").write_text(json.dumps({"torch": "2.9.1+cpu", "gpu": False}))
+        (self.root / "runtime-ok.json").write_text(json.dumps({"torch": "2.14.1+cpu", "gpu": False, "profile": self.components.manifest["runtime_profile"]}))
         with patch("importlib.util.find_spec", return_value=object()):
             self.assertTrue(self.components.status()[0]["installed"])
             self.components._hardware.update(speech_gpu=True)

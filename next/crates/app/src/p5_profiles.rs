@@ -270,8 +270,11 @@ pub fn run(evidence: PathBuf, flac: PathBuf) -> Result<()> {
                 6=>{snapshot(&ui,&output.join(format!("restore-review-{}-{}.png",if frames>=2{"en"}else{"ru"},if frames%2==1{"dark"}else{"light"})))?;frames+=1;if frames<4{phase=5;}else{ui.invoke_profile_action(3);phase=7;}}
                 7 if !ui.get_profile_running()&&ui.get_profile_status_ru().starts_with("Восстановление завершено")=>{
                     if ui.get_user_name()!="QA profile owner"||ui.get_onboarding(){return Err("Clean restore did not apply prefs/setup".into());}
-                    if view.phrases.len()!=4{return Ok(());}
+                    // The visible library excludes the deleted history row;
+                    // all four stored rows are checked below through Sandbox.
+                    if view.phrases.len()!=3{return Ok(());}
                     owned.borrow_mut().take();let store=Sandbox::open(&clean)?;let prefs=store.load()?;
+                    if store.phrases()?.len()!=4{return Err("Clean restore changed stored rows".into());}
                     if prefs.desktop.character_preset!=character||prefs.generation.voice_profile!=voice||prefs.desktop.visual_preset!=visual{return Err("Independent preset links changed".into());}
                     if !store.phrase("excluded")?.rejected||!store.phrase("history")?.deleted||store.phrase("same")?.used_at.is_none(){return Err("History/status lost".into());}
                     if kavychka_maintenance::digest(&clean.join("audio/tone.flac"))?!=source_audio{return Err("Restored audio changed".into());}drop(store);
@@ -281,14 +284,14 @@ pub fn run(evidence: PathBuf, flac: PathBuf) -> Result<()> {
                 9 if ui.get_profile_can_apply()&&!ui.get_profile_running()=>{if !ui.get_profile_summary_ru().contains("уже применён"){return Err("Repeat not identified".into());}ui.set_page(6);ui.window().set_size(slint::LogicalSize::new(1100.,780.));phase=90;}
                 90=>{ui.set_scroll_y(-ui.get_scroll_overflow());phase=91;}
                 91=>{snapshot(&ui,&output.join("repeat-review-actions.png"))?;if ui.get_busy()||ui.get_onboarding(){return Err("Restore review parent stayed disabled".into());}click(&ui,860.,475.);phase=10;}
-                10 if !ui.get_data_operation_active()=>{if view.phrases.len()!=4{return Err("Repeat/cancel changed rows".into());}
+                10 if !ui.get_data_operation_active()=>{if view.phrases.len()!=3{return Err("Repeat/cancel changed visible rows".into());}
                     ui.invoke_profile_action(2);phase=11;
                 }
                 11 if ui.get_profile_can_apply()&&!ui.get_profile_running()=>{ui.set_page(6);phase=111;}
                 111=>{ui.set_scroll_y(-ui.get_scroll_overflow());phase=110;}
                 110=>{snapshot(&ui,&output.join("repeat-apply-actions.png"))?;click(&ui,464.,475.);phase=12;}
                 12 if !ui.get_profile_running()&&ui.get_profile_status_ru().starts_with("Восстановление завершено")=>{
-                    if view.phrases.len()!=4{return Err("Repeat apply duplicated rows".into());}
+                    if view.phrases.len()!=3{return Err("Repeat apply changed visible rows".into());}
                     let path=nonempty(&output,&source,&character)?;attach(&ui,&owned,&path);phase=13;
                 }
                 13=>{ui.set_profile_operation_index(1);ui.set_profile_import_path(archive.to_string_lossy().as_ref().into());ui.invoke_profile_action(2);phase=14;}
@@ -297,8 +300,9 @@ pub fn run(evidence: PathBuf, flac: PathBuf) -> Result<()> {
                     ui.set_page(6);ui.set_scroll_y(-ui.get_scroll_overflow()*0.7);snapshot(&ui,&output.join("nonempty-review.png"))?;ui.invoke_profile_action(3);phase=15;
                 }
                 15 if !ui.get_profile_running()&&ui.get_profile_status_ru().starts_with("Восстановление завершено")=>{
-                    if view.phrases.len()!=4{return Ok(());}
+                    if view.phrases.len()!=3{return Ok(());}
                     owned.borrow_mut().take();let current=Sandbox::open(&output.join("nonempty"))?;
+                    if current.phrases()?.len()!=4{return Err("Nonempty restore changed stored rows".into());}
                     if current.load()?.user_name!="Current owner"||current.load()?.desktop.character_preset!=character||!current.phrase("same")?.rejected||current.phrase("same")?.text!="Сохранить текущий выбор пользователя."{return Err("Nonempty apply overwrote current choices".into());}
                     let presets=presets::list(&current.root)?;if !presets.iter().any(|p|p.id!=character&&p.preset.name=="QA character"){return Err("Conflicting incoming preset was lost".into());}drop(current);
                     attach(&ui,&owned,&clean);phase=16;

@@ -66,7 +66,7 @@ impl Drop for PendingStaging {
         }
     }
 }
-fn runtime_ready(root: &Path, device: &str) -> bool {
+fn runtime_ready(root: &Path, device: &str, profile: Option<&str>) -> bool {
     if !root.join("runtime/python.exe").is_file() {
         return false;
     }
@@ -75,9 +75,25 @@ fn runtime_ready(root: &Path, device: &str) -> bool {
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or(Value::Null);
     marker.is_object()
+        && profile.is_none_or(|profile| marker["profile"] == profile)
         && (device != "cuda"
             || marker["gpu"] == true
             || marker["torch"].as_str().is_some_and(|s| s.contains("+cu")))
+}
+fn cosy_ready(root: &Path, revision: Option<&str>, profile: Option<&str>) -> bool {
+    let marker: Value = std::fs::read(root.join("cosy/verified.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(Value::Null);
+    marker.is_object()
+        && revision.is_none_or(|revision| marker["revision"] == revision)
+        && profile.is_none_or(|profile| marker["profile"] == profile)
+        && root.join("cosy/site/numpy/__init__.py").is_file()
+        && root.join("cosy/Whisper/whisper/__init__.py").is_file()
+        && root
+            .join("cosy/CosyVoice/cosyvoice/cli/cosyvoice.py")
+            .is_file()
+        && root.join("cosy/Matcha-TTS/matcha/utils/audio.py").is_file()
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Model {
@@ -156,12 +172,23 @@ pub fn models(
                             && root.join("llama/verified.json").is_file()
                     }
                     Some("cosyvoice3") => {
-                        runtime_roots
-                            .iter()
-                            .any(|r| runtime_ready(r, &prefs.generation.device))
-                            && root.join("cosy/verified.json").is_file()
+                        runtime_roots.iter().any(|r| {
+                            runtime_ready(
+                                r,
+                                &prefs.generation.device,
+                                manifest["runtime_profile"].as_str(),
+                            )
+                        }) && cosy_ready(
+                            root,
+                            manifest["cosy_runtime"]["revision"].as_str(),
+                            manifest["runtime_profile"].as_str(),
+                        )
                     }
-                    _ => runtime_ready(root, &prefs.generation.device),
+                    _ => runtime_ready(
+                        root,
+                        &prefs.generation.device,
+                        manifest["runtime_profile"].as_str(),
+                    ),
                 });
         list.push(Model {
             id: id.clone(),
@@ -259,15 +286,28 @@ impl Worker {
             .as_array()
             .is_some_and(|ids| ids.iter().any(|i| i == "tts-cosyvoice3"));
         let device = request["settings"]["device"].as_str().unwrap_or("auto");
-        let managed_full = runtime_ready(&library.join("components"), device);
-        let original_full = runtime_ready(resources, device);
+        let manifest: Value = serde_json::from_slice(
+            &std::fs::read(app.join("assets/components.json")).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        let profile = manifest["runtime_profile"].as_str();
+        let managed_full = runtime_ready(&library.join("components"), device, profile);
+        let original_full = runtime_ready(resources, device, profile);
         let needs_bootstrap = installing
             && (repairing
                 || !managed_python.is_file() && !original_python.is_file()
                 || voices && !managed_full && !original_full
                 || cosy
-                    && !library.join("components/cosy/verified.json").is_file()
-                    && !resources.join("cosy/verified.json").is_file());
+                    && !cosy_ready(
+                        &library.join("components"),
+                        manifest["cosy_runtime"]["revision"].as_str(),
+                        manifest["runtime_profile"].as_str(),
+                    )
+                    && !cosy_ready(
+                        resources,
+                        manifest["cosy_runtime"]["revision"].as_str(),
+                        manifest["runtime_profile"].as_str(),
+                    ));
         let python = if managed_full
             || !original_python.is_file()
                 && library
@@ -491,6 +531,28 @@ pub fn request(prefs: &Preferences, rows: &[Phrase], operation: &str, day: &str)
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn old_runtime_profile_requires_explicit_upgrade_and_does_not_edit_its_marker() {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../work/runtime-profile-tests");
+        std::fs::create_dir_all(&base).unwrap();
+        let t = tempfile::tempdir_in(base).unwrap();
+        std::fs::create_dir(t.path().join("runtime")).unwrap();
+        std::fs::write(t.path().join("runtime/python.exe"), b"fixture").unwrap();
+        let marker = t.path().join("runtime-ok.json");
+        let old = br#"{"torch":"2.9.1+cu128","gpu":true}"#;
+        std::fs::write(&marker, old).unwrap();
+        assert!(!super::runtime_ready(t.path(), "cuda", Some("new-profile")));
+        assert_eq!(std::fs::read(&marker).unwrap(), old);
+        std::fs::write(
+            &marker,
+            br#"{"torch":"2.14.1+cu126","gpu":true,"profile":"new-profile"}"#,
+        )
+        .unwrap();
+        assert!(super::runtime_ready(t.path(), "cpu", Some("new-profile")));
+        assert!(super::runtime_ready(t.path(), "cuda", Some("new-profile")));
+    }
+
     #[test]
     fn failed_worker_start_removes_its_private_payload_without_touching_the_library() {
         let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

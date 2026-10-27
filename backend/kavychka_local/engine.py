@@ -51,6 +51,10 @@ class Engine:
         if not self.components.ready(key):
             raise ValueError("Сначала установите компонент «" + key + "» на вкладке «Модели»")
         spec = self.components.manifest["models"][key]
+        if spec.get("format") != "gguf":
+            # Cosy's local YAML/PT files and HF configs are executable inputs,
+            # even with offline mode / weights_only. Do not trust size alone.
+            self.components.verify_inference(key, event, progress)
         if spec.get("format") == "gguf":
             from .llama import Llama
             executable = self.components.llama_executable()
@@ -82,14 +86,16 @@ class Engine:
         folder = str(self.components.path(key))
         if key.startswith("text"):
             from transformers import AutoModelForCausalLM, AutoTokenizer
-            self.tokenizer = AutoTokenizer.from_pretrained(folder, local_files_only=True)
+            self.tokenizer = AutoTokenizer.from_pretrained(folder, local_files_only=True, trust_remote_code=False)
             self.model = AutoModelForCausalLM.from_pretrained(folder, torch_dtype=dtype, device_map=self.device,
-                                                             attn_implementation="sdpa", local_files_only=True)
+                                                             attn_implementation="sdpa", local_files_only=True,
+                                                             trust_remote_code=False, use_safetensors=True)
         else:
             from qwen_tts import Qwen3TTSModel
             import soundfile as sf
             self.model = Qwen3TTSModel.from_pretrained(folder, dtype=dtype, device_map=self.device,
-                                                      attn_implementation="sdpa", local_files_only=True)
+                                                      attn_implementation="sdpa", local_files_only=True,
+                                                      trust_remote_code=False, use_safetensors=True)
             audio, rate = sf.read(self.reference, dtype="float32")
             transcript = self.profile["transcript"].strip()
             self.prompt = self.model.create_voice_clone_prompt(ref_audio=(audio, rate), ref_text=transcript or None, x_vector_only_mode=not bool(transcript))

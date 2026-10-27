@@ -46,8 +46,8 @@ def probe():
     result = dict(ram_bytes=memory_bytes(), cuda_version=0, gpu_name="", vram_bytes=0, compute=0)
     result.update(cuda_device())
     # CUDA 13 removed older GPU architectures. CUDA 13.x supports minor-version
-    # compatibility with a CUDA 13.0 driver; PyTorch is pinned to cu128.
+    # compatibility with a CUDA 13.0 driver; PyTorch uses CUDA 12.6 wheels.
     supported = result["compute"] >= 75
-    result["speech_gpu"] = supported and result["cuda_version"] >= 12080
+    result["speech_gpu"] = supported and result["cuda_version"] >= 12060
     result["text_gpu"] = supported and result["cuda_version"] >= 13000
     return result
