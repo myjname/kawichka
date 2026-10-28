@@ -55,6 +55,21 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "original environment retained"):
             Components.runtime_python(self.components)
 
+    @unittest.skipUnless(os.name == "nt", "Windows extended paths")
+    def test_managed_python_accepts_extended_and_plain_paths_in_both_directions(self):
+        managed = self.root / "Среда Python"
+        runtime = managed / "runtime"
+        runtime.mkdir(parents=True)
+        actual = runtime / "python.exe"
+        actual.write_bytes(b"interpreter identity fixture")
+        extended = "\\\\?\\" + str(actual)
+        for executable, root in ((extended, managed),
+                                 (str(actual), Path("\\\\?\\" + str(managed)))):
+            with self.subTest(executable=executable), patch.object(sys, "executable", executable):
+                component = Components(ROOT, root, None)
+                self.assertEqual(Components.runtime_python(component), str(actual.resolve()))
+                self.assertEqual(actual.read_bytes(), b"interpreter identity fixture")
+
     def test_mismatched_derived_wheel_starts_no_installation(self):
         self.components.manifest["qwen_inference"]["derived_sha256"] = "0" * 64
         with patch("kavychka_local.downloads.download"), patch.object(self.components, "run_install") as run:

@@ -22,6 +22,17 @@ def checkpoint(event):
     if event.is_set():
         raise Cancelled("Отменено пользователем; загрузку можно продолжить")
 
+def resolved_path(path):
+    """One identity for ordinary and extended Win32/UNC spellings."""
+    value = str(Path(path).resolve())
+    if os.name == "nt":
+        if value.startswith("\\\\?\\UNC\\"):
+            value = "\\\\" + value[8:]
+        elif value.startswith("\\\\?\\"):
+            value = value[4:]
+    return Path(value)
+
+
 def digest(path):
     value = hashlib.sha256()
     with Path(path).open("rb") as source:
@@ -150,9 +161,16 @@ class Components:
 
     def runtime_python(self):
         self.check_package_path(self.root / "runtime")
-        python = Path(os.path.realpath(sys.executable))
-        if python != (self.root / "runtime/python.exe").resolve():
-            raise ValueError("Install or repair must run in the managed Python; original environment retained")
+        # Windows may report the same interpreter with or without \\?\.
+        python = resolved_path(sys.executable)
+        if python != resolved_path(self.root / "runtime/python.exe"):
+            raise ValueError(
+                "Подготовка остановлена: компоненты запущены вне встроенной среды Python. "
+                "Перезапусти Кавычку и повтори «Подготовить модели». "
+                "Если ошибка повторится, сохрани журнал из «Подробнее». "
+                "Существующие модели и среда сохранены. / "
+                "Setup stopped: Python is outside the managed environment. Restart Kavychka "
+                "and retry Set up models. If it fails again, save the log from Details; original environment retained")
         return str(python)
 
     def path(self, key):
