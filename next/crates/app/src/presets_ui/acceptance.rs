@@ -90,6 +90,87 @@ fn wave() -> Vec<u8> {
 fn loaded(ui: &AppWindow) -> Result<Preferences, Box<dyn std::error::Error>> {
     Ok(serde_json::from_str(ui.get_loaded_prefs().as_str())?)
 }
+/// The driver injects a failing SQLite trigger into this owned fixture before
+/// the service starts. This exercises the real failed commit, not a UI mock.
+pub fn rollback(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    if !output.is_absolute() || output.exists() {
+        return Err("New absolute evidence folder required".into());
+    }
+    fs::create_dir(&output)?;
+    let data = output.join("data");
+    let mut store = Sandbox::open(&data)?;
+    let mut original = store.load()?;
+    original.desktop.setup_complete = true;
+    original.desktop.automatic_updates = false;
+    original.generation.auto_daily = false;
+    original.generation.text_enabled = false;
+    original.generation.tts_model = "system".into();
+    store.save(&original)?;
+    drop(store);
+    let text = output.join("new-character.txt");
+    fs::write(&text, "A concise synthetic new character description.")?;
+    fs::write(
+        output.join("ready-for-fault.json"),
+        serde_json::to_vec(&data.join("shell.sqlite3"))?,
+    )?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !output.join("fault-installed").is_file() {
+        if Instant::now() > deadline {
+            return Err("Fault driver timeout".into());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    let events = Events::default();
+    slint::platform::set_platform(Box::new(Headless {
+        window: window.clone(),
+        events: events.clone(),
+    }))?;
+    let ui = AppWindow::new()?;
+    ui.set_audio_refreshing(true);
+    ui.set_storage_path(data.to_string_lossy().as_ref().into());
+    let backend = Backend::start(data.clone(), ui.as_weak());
+    crate::wire(&ui, &backend);
+    ui.show()?;
+    wait(&events, "initial preferences", || {
+        ui.get_ready() && ui.get_character_ids().row_count() > 0
+    })?;
+    ui.set_user_name("Unsaved name".into());
+    ui.set_start_time("invalid draft".into());
+    ui.invoke_edited();
+    import_character_path(&ui, &backend.sender, text)?;
+    wait(&events, "failed import commit", || {
+        ui.get_failed() && ui.get_status().contains("synthetic-import-save-fault")
+    })?;
+    let deadline = Instant::now() + Duration::from_millis(600);
+    while Instant::now() < deadline {
+        pump(&events);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    if serde_json::to_value(loaded(&ui)?)? != serde_json::to_value(&original)?
+        || !id(ui.get_character_ids(), ui.get_character_index()).is_empty()
+        || ui.get_user_name() != "Unsaved name"
+        || ui.get_start_time() != "invalid draft"
+        || ui
+            .get_character_feedback()
+            .contains("импортирован и применён")
+    {
+        return Err("Failed import changed saved preferences or unrelated draft".into());
+    }
+    ui.hide()?;
+    drop(backend);
+    let stored = Sandbox::open(&data)?;
+    if serde_json::to_value(stored.load()?)? != serde_json::to_value(&original)? {
+        return Err("Failed commit persisted changed preferences".into());
+    }
+    fs::write(
+        output.join("result.json"),
+        serde_json::to_vec_pretty(
+            &serde_json::json!({"passed":true,"actual_service":true,"actual_sqlite_commit_failure":true,"saved_preferences_preserved":true,"unrelated_invalid_draft_preserved":true,"no_false_applied_selection":true}),
+        )?,
+    )?;
+    Ok(())
+}
 pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     if !output.is_absolute() || output.exists() {
         return Err("New absolute evidence folder required".into());
@@ -173,13 +254,20 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     ui.set_page(4);
     // The native picker only supplies a path; use the very same submit boundary
     // as the main Import Character action, without opening a desktop dialog.
+    ui.set_user_name("Unrelated unsaved draft".into());
+    ui.invoke_edited();
     import_character_path(&ui, &backend.sender, collection)?;
-    wait(&events, "collection import and draft selection", || {
-        ui.get_dirty()
-            && ui.get_character_index() > 0
-            && ui.get_voice_profile_index() > 0
-            && ui.get_visual_index() > 0
-    })?;
+    wait(
+        &events,
+        "collection import and automatic application",
+        || {
+            ui.get_dirty()
+                && ui.get_character_index() > 0
+                && ui.get_voice_profile_index() > 0
+                && ui.get_visual_index() > 0
+                && loaded(&ui).is_ok_and(|p| !p.desktop.character_preset.is_empty())
+        },
+    )?;
     let first = id(ui.get_character_ids(), ui.get_character_index());
     if first != id(ui.get_voice_profile_ids(), ui.get_voice_profile_index())
         || first != id(ui.get_visual_ids(), ui.get_visual_index())
@@ -187,9 +275,21 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("Combined selection did not apply all components".into());
     }
-    if serde_json::to_value(loaded(&ui)?)? != serde_json::to_value(&original)? {
-        return Err("Import silently changed saved preferences".into());
+    let mut expected = original.clone();
+    apply_to_preferences(
+        &mut expected,
+        &entries(&ui)?
+            .into_iter()
+            .find(|e| e.id == first)
+            .ok_or("missing imported character")?,
+    );
+    if serde_json::to_value(loaded(&ui)?)? != serde_json::to_value(&expected)?
+        || ui.get_user_name() != "Unrelated unsaved draft"
+        || !ui.get_character_feedback().contains("импортирован")
+    {
+        return Err("Automatic import failed or changed unrelated saved/draft settings".into());
     }
+    ui.set_user_name(original.user_name.as_str().into());
     ui.invoke_save();
     wait(&events, "explicit save", || {
         !ui.get_dirty() && loaded(&ui).is_ok_and(|p| p.desktop.character_preset == first)
@@ -212,11 +312,18 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
             })
     })?;
     ui.set_character_pack_name("Snapshot with overrides".into());
+    let saved_start = ui.get_start_time();
+    ui.set_start_time("invalid draft".into());
+    ui.invoke_edited();
     ui.invoke_save_character_pack();
     wait(&events, "save current as complete character", || {
         ui.get_dirty() && id(ui.get_character_ids(), ui.get_character_index()) != first
     })?;
     let second = id(ui.get_character_ids(), ui.get_character_index());
+    if ui.get_start_time() != "invalid draft" {
+        return Err("Preset operation replaced unrelated invalid schedule draft".into());
+    }
+    ui.set_start_time(saved_start);
     if !id(ui.get_voice_profile_ids(), ui.get_voice_profile_index()).is_empty()
         || !id(ui.get_visual_ids(), ui.get_visual_index()).is_empty()
         || ui.get_delivery_index() != 1
@@ -332,7 +439,7 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("Character deletion removed wrong media".into());
     }
-    let proof = serde_json::json!({"passed":true,"native_windows_created":false,"audio_played":false,"models_used":false,"actual_ui_callbacks":true,"actual_service":true,"one_archive_import_applied_all_draft_components":true,"explicit_save_required":true,"independent_overrides_preserved":true,"save_current_snapshot":true,"edit_complete_character":true,"unrelated_preset_actions_preserve_description_override":true,"reselect_restores_components":true,"active_delete_protected":true,"unsaved_draft_delete_protected":true,"inactive_delete_preserved_active":true,"exported":true});
+    let proof = serde_json::json!({"passed":true,"native_windows_created":false,"audio_played":false,"models_used":false,"actual_ui_callbacks":true,"actual_service":true,"one_archive_import_applied_and_saved_character":true,"unrelated_unsaved_draft_preserved":true,"independent_overrides_preserved":true,"save_current_snapshot":true,"edit_complete_character":true,"unrelated_preset_actions_preserve_description_override":true,"reselect_restores_components":true,"active_delete_protected":true,"unsaved_draft_delete_protected":true,"inactive_delete_preserved_active":true,"exported":true});
     fs::write(
         output.join("result.json"),
         serde_json::to_vec_pretty(&proof)?,

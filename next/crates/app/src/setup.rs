@@ -54,6 +54,28 @@ pub fn intercept() -> Result<bool> {
     let removal_args: Vec<_> = std::env::args_os().skip(1).collect();
     if removal_args
         .first()
+        .is_some_and(|a| a == "--verify-import-rollback")
+    {
+        if removal_args.len() != 2 {
+            return Err("expected new evidence folder".into());
+        }
+        crate::presets_ui::verify_import_rollback(PathBuf::from(&removal_args[1]))
+            .map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    if removal_args
+        .first()
+        .is_some_and(|a| a == "--verify-feedback")
+    {
+        if removal_args.len() != 2 {
+            return Err("expected --verify-feedback <new evidence folder>".into());
+        }
+        crate::controls_smoke::verify_feedback(PathBuf::from(&removal_args[1]))
+            .map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    if removal_args
+        .first()
         .is_some_and(|a| a == "--verify-compact-controls")
     {
         if removal_args.len() != 2 {

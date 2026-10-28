@@ -335,6 +335,18 @@ def run(request):
     def progress(message, done=0, total=0): emit("progress", message=message, done=done, total=total)
     rows = request.get("rows", [])
     try:
+        if operation == "support":
+            # No phrase rows, delivery, voice model or audio stage on this path.
+            if store.values["tts_model"] != "system":
+                raise ValueError("Encouragement must be text-only")
+            texts = []
+            for _ in range(4):
+                stage("text", event)
+                text = engine.text("support", event, progress, style_retries=False)
+                texts.append(text)
+                store.history.insert(0, text)
+            emit("result", texts=texts)
+            return
         for task in request.get("tasks", []):
             stage("text", event)
             text = task.get("text") or engine.text(task["category"], event, progress,

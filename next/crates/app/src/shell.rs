@@ -39,6 +39,7 @@ pub(crate) fn apply_runtime_status(ui: &AppWindow, view: &RuntimeView) {
 }
 
 type AlphaKey = (usize, u32, u32, u32, bool, bool);
+type ImageKey = (usize, u32, u32, u32, bool);
 type ClipCache = Rc<Cell<Option<(isize, u32, u32, u32, bool)>>>;
 pub struct Shell {
     pub pet: PetWindow,
@@ -58,7 +59,7 @@ pub struct Shell {
     visual_timer: slint::Timer,
     visual_serial: std::sync::Arc<std::sync::atomic::AtomicU64>,
     visual_started: std::time::Instant,
-    visual_last: Cell<Option<(usize, u32, u32, u32)>>,
+    visual_last: Cell<Option<ImageKey>>,
     happy_until: Cell<Option<std::time::Instant>>,
     alpha_key: Cell<Option<AlphaKey>>,
     pet_clip: ClipCache,
@@ -319,10 +320,16 @@ impl Shell {
         self.pet.set_custom_visual(true);
         let size = self.pet.window().size();
         let scale = self.pet.window().scale_factor();
-        let placement = frames.placement(index, size.width, size.height, scale);
-        let image_key = (index, size.width, size.height, scale.to_bits());
+        let placement = frames.scene_placement(index, size.width, size.height, scale, view.paused);
+        let image_key = (index, size.width, size.height, scale.to_bits(), view.paused);
         if self.visual_last.replace(Some(image_key)) != Some(image_key) {
-            self.pet.set_custom_image(frames.image_at(index, placement));
+            let image = frames.image_at(index, placement);
+            self.pet.set_custom_image(image.clone());
+            if let Some(ui) = self.ui.upgrade() {
+                ui.set_today_image(image);
+                ui.set_today_custom(true);
+                ui.set_today_pixelated(frames.pixelated);
+            }
         }
         self.pet.set_custom_pixelated(frames.pixelated);
         self.pet.set_custom_left(placement.left as f32 / scale);
@@ -631,6 +638,9 @@ impl Shell {
                 *f = None;
             }
             self.pet.set_custom_visual(false);
+            if let Some(ui) = self.ui.upgrade() {
+                ui.set_today_custom(false);
+            }
             if !view.prefs.desktop.visual_preset.is_empty()
                 && let Some(ui) = self.ui.upgrade()
             {

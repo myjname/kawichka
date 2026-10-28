@@ -163,7 +163,8 @@ impl Frames {
         slint::Image::from_rgba8(buffer)
     }
     /// The visible rectangle and the native click mask share this geometry.
-    /// Integer upscaling avoids alternating pixel widths at fractional DPI.
+    /// Arbitrary requested sizes retain aspect ratio; raster() uses nearest
+    /// for pixel art, and the native click mask uses that exact same raster.
     pub fn placement(&self, index: usize, width: u32, height: u32, scale: f32) -> Placement {
         let empty = Placement {
             left: 0,
@@ -180,11 +181,8 @@ impl Frames {
         let margin = (8. * scale).round() as u32;
         let available_w = width.saturating_sub(margin.saturating_mul(2));
         let available_h = height.saturating_sub(margin.saturating_mul(2));
-        let mut ratio = (available_w as f64 / image.width() as f64)
+        let ratio = (available_w as f64 / image.width() as f64)
             .min(available_h as f64 / image.height() as f64);
-        if self.pixelated && ratio >= 1. {
-            ratio = ratio.floor();
-        }
         let w = (image.width() as f64 * ratio).round() as u32;
         let h = (image.height() as f64 * ratio).round() as u32;
         Placement {
@@ -193,6 +191,27 @@ impl Frames {
             width: w,
             height: h,
         }
+    }
+    /// A paused companion reserves the bottom quarter for the cage timer.
+    /// Both the rendered image and native click mask must use this rectangle.
+    pub fn scene_placement(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        scale: f32,
+        paused: bool,
+    ) -> Placement {
+        if height > 4096 {
+            return self.placement(index, width, height, scale);
+        }
+        let scene_height = if paused && scale.is_finite() && scale > 0. {
+            let padding = (8. * scale).round() as u32 * 2;
+            padding.saturating_add(height.saturating_sub(padding) * 3 / 4)
+        } else {
+            height
+        };
+        self.placement(index, width, scene_height, scale)
     }
     /// Exact contain geometry used by PetWindow. Alpha < 8 is click-through,
     /// including holes; never union frames (that would fill animated holes).
@@ -208,7 +227,7 @@ impl Frames {
         if width > 4096 || height > 4096 {
             return vec![];
         }
-        let placement = self.placement(index, width, height, scale);
+        let placement = self.scene_placement(index, width, height, scale, paused);
         let w = placement.width;
         let h = placement.height;
         if w == 0 || h == 0 {
@@ -388,7 +407,7 @@ mod tests {
         assert!(f.hit_spans(0, 5000, 116, false, false, 1.).is_empty());
     }
     #[test]
-    fn pixel_geometry_preserves_integer_blocks_and_mask_for_all_sizes_and_dpi() {
+    fn pixel_geometry_preserves_palette_and_mask_at_arbitrary_sizes_and_dpi() {
         let image = image::RgbaImage::from_fn(64, 64, |x, y| {
             image::Rgba(
                 if x < 4
@@ -415,27 +434,23 @@ mod tests {
                 let physical = (logical_size as f32 * scale).round() as u32;
                 let p = f.placement(0, physical, physical, scale);
                 assert_eq!(p.width, p.height);
-                assert_eq!(p.width % 64, 0);
-                assert_eq!(p.height % 64, 0);
+                assert_eq!(
+                    p.width,
+                    physical.saturating_sub(2 * (8. * scale).round() as u32)
+                );
                 assert!(p.width >= 64);
                 assert!(p.left + p.width <= physical);
                 assert!(p.top + p.height <= physical);
                 let spans = f.hit_spans(0, physical, physical, false, false, scale);
-                let factor = p.width / 64;
-                for (x, y) in [(0, 0), (12, 12), (32, 32), (63, 63), (50, 50)] {
-                    let expected = f.frames[0].0.get_pixel(x, y).0[3] >= 8;
-                    for dy in 0..factor {
-                        for dx in 0..factor {
-                            assert_eq!(
-                                contains(
-                                    &spans,
-                                    (p.left + x * factor + dx) as i32,
-                                    (p.top + y * factor + dy) as i32
-                                ),
-                                expected
-                            );
-                        }
-                    }
+                let raster = f.raster(0, p);
+                for (x, y, pixel) in raster.enumerate_pixels().step_by(47) {
+                    assert!(
+                        [[0, 0, 0, 0], [230, 30, 80, 255], [100, 170, 240, 255]].contains(&pixel.0)
+                    );
+                    assert_eq!(
+                        contains(&spans, (p.left + x) as i32, (p.top + y) as i32),
+                        pixel.0[3] >= 8
+                    );
                 }
             }
         }
@@ -469,6 +484,38 @@ mod tests {
         assert_eq!(p.width, p.height);
         assert_eq!(p.height, 90);
         assert!(f.placement(0, 100, 100, f32::NAN).width == 0);
+    }
+    #[test]
+    fn paused_sprite_and_click_mask_reserve_the_timer_area_at_all_sizes() {
+        let frames = Frames {
+            frames: vec![(
+                image::RgbaImage::from_pixel(64, 64, image::Rgba([220, 130, 90, 255])),
+                1000,
+            )],
+            atlas: false,
+            pixelated: true,
+        };
+        for scale in [1., 1.25, 1.5, 2.] {
+            for logical in [80, 120, 137, 200, 260] {
+                let size = (logical as f32 * scale).round() as u32;
+                let p = frames.scene_placement(0, size, size, scale, true);
+                let margin = (8. * scale).round() as u32;
+                let timer_top = margin + (size - 2 * margin) * 77 / 100;
+                assert!(p.top + p.height <= timer_top);
+                assert_eq!(p.width, p.height);
+                let spans = frames.hit_spans(0, size, size, true, false, scale);
+                assert!(contains(
+                    &spans,
+                    (p.left + p.width / 2) as i32,
+                    (p.top + p.height / 2) as i32
+                ));
+                assert!(contains(&spans, (size / 2) as i32, (timer_top + 2) as i32));
+                assert_eq!(
+                    frames.scene_placement(0, size, size, scale, false),
+                    frames.placement(0, size, size, scale)
+                );
+            }
+        }
     }
     #[test]
     fn existing_codex_atlas_still_decodes_its_animation_rows() {

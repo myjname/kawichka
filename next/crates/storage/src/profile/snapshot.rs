@@ -170,6 +170,8 @@ pub(crate) fn read(path: &Path) -> Result<Snapshot> {
             }
             .validate()
             .map_err(invalid)?;
+        } else if key == "support_day" || key == "support_history" {
+            crate::support::validate_value(&key, &value).map_err(invalid)?;
         } else if key.starts_with("delivery_journal:") {
             let journal: crate::delivery::DeliveryJournal = serde_json::from_value(value.clone())?;
             if journal.format != 1 || key != format!("delivery_journal:{}", journal.notice) {

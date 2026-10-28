@@ -41,6 +41,21 @@ def messages(category, settings, variant=None, followup=False):
     description = settings["character_description"]
     if description.strip() in (DEFAULT_DESCRIPTION.strip(), PROFILE.get("description_en", "").strip()):
         description = PROFILE.get("description_en", DEFAULT_DESCRIPTION) if settings.get("speech_language", "ru") == "en" else DEFAULT_DESCRIPTION
+    if category == "support":
+        english = settings.get("speech_language", "ru") == "en"
+        instruction = ("Write one brief encouraging line for a desktop companion, in natural English. " if english else
+                       "Напиши одну короткую подбадривающую реплику настольного персонажа по-русски. ")
+        instruction += ("This is a silent message, not a reminder: do not demand a meal, exercise or a break. Do not invent personal facts, pressure, promises or stage directions. Return only 1–2 sentences, at most 35 words. " if english else
+                        "Это текст поддержки без озвучки, не напоминание: не требуй поесть, встать или размяться. Не выдумывай фактов о человеке, не дави, не обещай невозможного и не добавляй сценических ремарок. Верни только 1–2 предложения, до 35 слов. ")
+        instruction += ("No profanity or insults. " if not settings["swear"] else "No insults or threats. ")
+        instruction += "Character / Характер:\n" + description
+        address = settings.get("address_form", "neutral")
+        user = ("Offer calm encouragement for today with a fresh image and opening." if english else
+                "Подбодри на сегодня, сохрани характер, придумай новое начало и образ. Обращайся на ты. " +
+                {"neutral": "Не используй формы, зависящие от пола адресата.", "female": "Адресат — женщина.", "male": "Адресат — мужчина."}[address])
+        if settings.get("user_name"):
+            user += " Name / Имя: " + settings["user_name"]
+        return [{"role": "system", "content": instruction}, {"role": "user", "content": user}]
     if settings.get("speech_language", "ru") == "en":
         instruction = "Write exactly one short natural English reminder, 1–3 sentences, up to 35 words. Return only spoken text, no heading, stage directions, quotes or explanations. Do not invent facts about the user. Keep the requested action explicit. "
         instruction += "Mild friendly profanity about work is allowed, no insults. " if settings["swear"] else "No profanity or insults. "

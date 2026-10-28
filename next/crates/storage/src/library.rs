@@ -497,6 +497,82 @@ impl Sandbox {
             |r| r.get(0),
         )?)
     }
+    /// Current and history are disjoint; history also retains unused old rows.
+    pub fn phrase_group_page(
+        &self,
+        day: &str,
+        current: bool,
+        page: usize,
+    ) -> Result<(Vec<Phrase>, usize, usize)> {
+        let predicate = if current {
+            "day=?1"
+        } else {
+            "(day IS NULL OR day<>?1)"
+        };
+        let total: i64 = self.connection.query_row(
+            &format!("SELECT count(*) FROM phrases WHERE deleted=0 AND {predicate}"),
+            [day],
+            |r| r.get(0),
+        )?;
+        let total = total.max(0) as usize;
+        let page = page.min(total.saturating_sub(1) / 50);
+        let rows = query_phrases(
+            &self.connection,
+            &format!(
+                "WHERE deleted=0 AND {predicate} ORDER BY created_at DESC,id LIMIT 50 OFFSET ?2"
+            ),
+            params![day, (page * 50) as i64],
+        )?;
+        Ok((rows, total, page))
+    }
+    /// Consumption precedes playback; only a completion fact means played.
+    pub fn phrase_delivery_state(&self, id: &str) -> Result<Option<String>> {
+        Ok(self.phrase_delivery_states(&[self.phrase(id)?])?.remove(id))
+    }
+    /// One scan for a bounded page without changing the profile SQLite schema.
+    pub fn phrase_delivery_states(
+        &self,
+        rows: &[Phrase],
+    ) -> Result<std::collections::BTreeMap<String, String>> {
+        let ids = serde_json::to_string(&rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>())?;
+        let mut query=self.connection.prepare("SELECT c.phrase_id,m.json FROM delivery_claims c JOIN library_meta m ON m.key='delivery_journal:'||c.notice WHERE c.phrase_id IN (SELECT value FROM json_each(?1))")?;
+        let mut result = std::collections::BTreeMap::new();
+        for row in query.query_map([ids], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })? {
+            let (id, raw) = row?;
+            let journal: crate::delivery::DeliveryJournal = serde_json::from_str(&raw)?;
+            let order = [
+                "audio_completed",
+                "audio_failed",
+                "audio_cancelled",
+                "audio_started",
+                "audio_preparing",
+                "shown",
+                "committed",
+            ];
+            if let Some(rank) = order.iter().position(|p| journal.phases.contains_key(*p)) {
+                let old = result
+                    .get(&id)
+                    .and_then(|p: &String| order.iter().position(|known| *known == p));
+                if old.is_none_or(|previous| rank < previous) {
+                    result.insert(id, order[rank].to_string());
+                }
+            }
+        }
+        Ok(result)
+    }
+    /// Remove from lists and queue, retaining text/context and audio recovery.
+    pub fn hide_phrase(&self, id: &str) -> Result<()> {
+        if self.connection.execute(
+            "UPDATE phrases SET deleted=1 WHERE id=?1 AND deleted=0",
+            [id],
+        )? != 1
+        {
+            return Err(Error::Invalid("phrase not found or already removed".into()));
+        }
+        Ok(())
+    }
     /// A stopped child owns only this flat audio staging folder. Logs are retained.
     pub fn cleanup_staging(&self, job: &Path) -> Result<()> {
         preview::no_link_chain(job)?;
@@ -1507,6 +1583,84 @@ mod tests {
             store
                 .save_delivery(&prefs, &state, Some(("notice2", "ready")))
                 .is_err()
+        );
+    }
+    #[test]
+    fn current_history_and_playback_facts_do_not_confuse_consumption_with_completion() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let ready = phrase();
+        store.accept_phrase(&ready, None).unwrap();
+        let mut old = ready.clone();
+        old.id = "old-unused".into();
+        old.day = Some("2026-10-22".into());
+        old.text = "Старая неиспользованная фраза".into();
+        store.accept_phrase(&old, None).unwrap();
+        assert_eq!(store.phrase_group_page("2026-10-23", true, 0).unwrap().1, 1);
+        assert_eq!(
+            store.phrase_group_page("2026-10-23", false, 0).unwrap().0[0].id,
+            "old-unused"
+        );
+        assert!(store.phrase_delivery_state("ready").unwrap().is_none());
+        store
+            .save_delivery(
+                &Preferences::default(),
+                &State::default(),
+                Some(("delivery-test", "ready")),
+            )
+            .unwrap();
+        assert_eq!(
+            store.phrase_delivery_state("ready").unwrap().as_deref(),
+            Some("committed")
+        );
+        store
+            .delivery_phase("delivery-test", "audio_cancelled")
+            .unwrap();
+        assert_eq!(
+            store.phrase_delivery_state("ready").unwrap().as_deref(),
+            Some("audio_cancelled")
+        );
+        store
+            .delivery_phase("delivery-test", "audio_completed")
+            .unwrap();
+        assert_eq!(
+            store.phrase_delivery_state("ready").unwrap().as_deref(),
+            Some("audio_completed")
+        );
+        store
+            .connection
+            .execute(
+                "INSERT INTO delivery_claims VALUES('later-without-audio','ready')",
+                [],
+            )
+            .unwrap();
+        crate::delivery::write_phase(
+            &store.connection,
+            "later-without-audio",
+            "committed",
+            &[],
+            Some("ready"),
+        )
+        .unwrap();
+        assert_eq!(
+            store.phrase_delivery_state("ready").unwrap().as_deref(),
+            Some("audio_completed")
+        );
+        store.hide_phrase("ready").unwrap();
+        assert_eq!(store.phrase_group_page("2026-10-23", true, 0).unwrap().1, 0);
+        assert_eq!(store.phrase("ready").unwrap().text, ready.text);
+        assert!(
+            store
+                .phrases()
+                .unwrap()
+                .iter()
+                .any(|p| p.id == "ready" && p.deleted)
+        );
+        assert!(
+            store
+                .choose("2026-10-23", "break", false, "ru")
+                .unwrap()
+                .is_none()
         );
     }
     #[test]

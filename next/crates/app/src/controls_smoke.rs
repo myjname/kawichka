@@ -19,6 +19,10 @@ use std::{
     time::{Duration, Instant},
 };
 type Events = Arc<Mutex<VecDeque<Box<dyn FnOnce() + Send>>>>;
+mod feedback;
+pub fn verify_feedback(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    feedback::run(output)
+}
 struct Proxy(Events);
 impl EventLoopProxy for Proxy {
     fn quit_event_loop(&self) -> Result<(), slint::EventLoopError> {

@@ -32,6 +32,7 @@ mod shell_settings;
 mod shell_smoke;
 mod smoke;
 mod soak;
+use kavychka_storage::support;
 mod transfer_ui;
 mod updater;
 mod visuals;

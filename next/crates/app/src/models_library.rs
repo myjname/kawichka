@@ -18,13 +18,23 @@ use std::{
 #[derive(Clone, Serialize, serde::Deserialize)]
 pub struct View {
     #[serde(default)]
+    pub support_texts: Vec<String>,
+    #[serde(default)]
+    pub support_generated: bool,
+    #[serde(default)]
+    pub support_index: usize,
+    #[serde(default)]
     pub audio_available: Vec<String>,
     #[serde(default)]
     pub imported_preset: String,
     #[serde(default)]
+    pub imported_applied: bool,
+    #[serde(default)]
     pub all_total: usize,
     #[serde(default)]
     pub today_total: usize,
+    #[serde(default)]
+    pub delivery_states: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub task_kind: String,
     #[serde(default)]
@@ -70,7 +80,11 @@ pub enum Preview {
     Text(String, Language),
 }
 pub struct Manager {
+    support: crate::support::Day,
+    support_check: Option<std::time::Instant>,
+    support_index: usize,
     imported_preset: String,
+    imported_applied: bool,
     task_phase: String,
     task_progress: Option<f64>,
     task_details: String,
@@ -200,11 +214,15 @@ impl Manager {
             });
         let saved = saved.unwrap_or(json!({}));
         Ok(Self {
+            support: Default::default(),
+            support_check: None,
+            support_index: 0,
             app,
             resources,
             worker: None,
             kind: String::new(),
             imported_preset: String::new(),
+            imported_applied: false,
             task_phase: String::new(),
             task_progress: None,
             task_details: String::new(),
@@ -235,7 +253,7 @@ impl Manager {
             runtime_deferred: false,
             battery_override: false,
             data_hold: false,
-            library_today: false,
+            library_today: true,
             library_page: 0,
             library_day: now.date.to_string(),
             archive_page: 0,
@@ -246,7 +264,7 @@ impl Manager {
         self.worker.is_some()
     }
     pub fn can_install(&self) -> Result<(), String> {
-        if self.running() && !["daily", "runtime"].contains(&self.kind.as_str()) {
+        if self.running() && !["daily", "runtime", "support"].contains(&self.kind.as_str()) {
             return Err("Дождись текущей задачи или отмени её перед подготовкой моделей / Wait for the current task or cancel it before model setup".into());
         }
         Ok(())
@@ -306,6 +324,30 @@ impl Manager {
     pub fn invalidate(&mut self) {
         self.dirty = true;
     }
+    pub fn apply_imported(&self, store: &Sandbox, prefs: &mut Preferences) -> Result<(), String> {
+        let preset = kavychka_storage::presets::read(&store.root, &self.imported_preset)
+            .map_err(|e| e.to_string())?;
+        let entry = kavychka_storage::presets::Entry {
+            id: self.imported_preset.clone(),
+            preset,
+        };
+        let mut next = prefs.clone();
+        crate::presets_ui::apply_to_preferences(&mut next, &entry);
+        next.validate()?;
+        *prefs = next;
+        Ok(())
+    }
+    pub fn import_aborted(&mut self) {
+        self.imported_preset.clear();
+        self.imported_applied = false;
+        self.task_error = true;
+        self.invalidate();
+    }
+    pub fn import_committed(&mut self) {
+        self.imported_applied = true;
+        self.status = "Персонаж импортирован и применён / Character imported and applied".into();
+        self.invalidate();
+    }
     pub fn browse(&mut self, today: bool, page: usize) {
         self.library_today = today;
         self.library_page = page;
@@ -363,7 +405,30 @@ impl Manager {
             self.task_error = false;
         }
         match action {
+            crate::presets_ui::Action::ImportAndApply(path) => {
+                let previous = self.imported_preset.clone();
+                let applied = self.imported_applied;
+                if let Err(error) = self.preset_action(
+                    store,
+                    prefs,
+                    crate::presets_ui::Action::Import(path, "character".into(), String::new()),
+                ) {
+                    self.imported_preset = previous;
+                    self.imported_applied = applied;
+                    return Err(error);
+                }
+                let p =
+                    presets::read(&store.root, &self.imported_preset).map_err(|e| e.to_string())?;
+                if p.content.description().is_none() {
+                    presets::delete(&store.root, &self.imported_preset)
+                        .map_err(|e| e.to_string())?;
+                    self.imported_preset = previous;
+                    self.imported_applied = applied;
+                    return Err("Этот файл не содержит характера персонажа / File does not contain a character description".into());
+                }
+            }
             crate::presets_ui::Action::Import(path, kind, transcript) => {
+                self.imported_applied = false;
                 if self.running() {
                     return Err("Отмени текущую задачу / Cancel the current task".into());
                 }
@@ -489,6 +554,7 @@ impl Manager {
                 if self.running() {
                     return Err("Дождись завершения задачи / Wait for the current task".into());
                 }
+                self.imported_applied = false;
                 self.imported_preset = presets::save_current_pack(&store.root, name, &draft)
                     .map_err(|e| e.to_string())?;
                 self.kind = "preset".into();
@@ -498,9 +564,11 @@ impl Manager {
                 if id == prefs.generation.voice_profile
                     || id == prefs.desktop.character_preset
                     || id == prefs.desktop.visual_preset
-                    || store.has_voice_reference(&id).map_err(|e| e.to_string())?
                 {
                     return Err("Сначала выбери другой пресет и сохрани настройки / Select another preset and save first".into());
+                }
+                if store.has_voice_reference(&id).map_err(|e| e.to_string())? {
+                    return Err("Пресет связан с историей библиотеки; смена текущего голоса не удаляет эти связи / Preset is referenced by library history; changing the active voice does not remove those references".into());
                 }
                 if self.running() {
                     return Err("Дождись задачи / Wait for the current task".into());
@@ -789,7 +857,7 @@ impl Manager {
             return Ok(());
         }
         request["ids"] = json!(ids);
-        if self.running() && ["daily", "runtime"].contains(&self.kind.as_str()) {
+        if self.running() && ["daily", "runtime", "support"].contains(&self.kind.as_str()) {
             self.cancel();
             self.pending_install = Some(request);
             self.status = "Останавливаю фоновую подготовку перед установкой / Stopping background preparation before model setup".into();
@@ -866,13 +934,25 @@ impl Manager {
             self.attempted.retain(|key| active.contains(key.as_str()));
         }
         if self.library_day != day {
-            self.library_day = day;
+            self.library_day = day.clone();
             self.library_page = 0;
             self.invalidate();
         }
         if self.data_hold {
             self.runtime_deferred = true;
             return Ok(());
+        }
+        let local = kavychka_platform::time::local_in(clock.utc, &engine.prefs.desktop.time_zone)
+            .map_err(|e| e.to_string())?;
+        let support_index = (chrono::Timelike::hour(&local) / 12) as usize;
+        if self.support_index != support_index {
+            self.support_index = support_index;
+            self.invalidate();
+        }
+        if self.support.identity != crate::support::identity(&engine.prefs, &day) {
+            self.support = crate::support::load(store, &engine.prefs, &day)?;
+            self.support_check = None;
+            self.invalidate();
         }
         let new_day = clock.date.to_string();
         let fullscreen_deferred =
@@ -883,11 +963,14 @@ impl Manager {
         self.runtime_deferred = fullscreen_deferred || battery_deferred || paused;
         if self.running()
             && (fullscreen_deferred
-                && ["daily", "batch", "runtime", "speech"].contains(&self.kind.as_str())
+                && ["daily", "batch", "runtime", "speech", "support"].contains(&self.kind.as_str())
                 || battery_deferred
                     && !self.battery_override
-                    && ["daily", "batch", "runtime", "speech"].contains(&self.kind.as_str())
-                || paused && ["daily", "batch", "runtime", "speech"].contains(&self.kind.as_str()))
+                    && ["daily", "batch", "runtime", "speech", "support"]
+                        .contains(&self.kind.as_str())
+                || paused
+                    && ["daily", "batch", "runtime", "speech", "support"]
+                        .contains(&self.kind.as_str()))
         {
             self.cancel();
             if let Some(wait) = &mut self.waiting {
@@ -898,7 +981,7 @@ impl Manager {
         if (self.running() || self.waiting.is_some())
             && !self.task_day.is_empty()
             && self.task_day < new_day
-            && ["daily", "batch", "runtime", "speech"].contains(&self.kind.as_str())
+            && ["daily", "batch", "runtime", "speech", "support"].contains(&self.kind.as_str())
         {
             self.cancel();
             self.waiting = None;
@@ -998,6 +1081,18 @@ impl Manager {
                             }
                         }
                         Some("result") => {
+                            if self.kind == "support" && !was_cancelled {
+                                let result = serde_json::from_value(value["texts"].clone())
+                                    .map_err(|e| e.to_string())
+                                    .and_then(|texts| {
+                                        crate::support::accept(store, &mut self.support, texts)
+                                    });
+                                if let Err(error) = result {
+                                    self.task_details = error;
+                                    failed = true;
+                                    self.status="Для поддержки остались готовые тексты / Ready-made encouragement retained".into();
+                                }
+                            }
                             if self.kind == "preset_import" {
                                 let id = value["preset"]["id"]
                                     .as_str()
@@ -1032,6 +1127,8 @@ impl Manager {
                                 self.status = format!("ZIP: {}", to.display());
                             } else if self.kind == "install" {
                                 self.status = "Модели готовы к работе / Models are ready".into();
+                            } else if self.kind == "support" {
+                                self.status = if failed { "Не удалось обновить поддержку; готовые тексты сохранены / Could not refresh encouragement; ready-made lines retained" } else { "Фразы поддержки на день готовы / Daily encouragement is ready" }.into();
                             } else {
                                 self.status = "Готово / Ready".into();
                             }
@@ -1248,6 +1345,48 @@ impl Manager {
             }
         }
         self.persist_preparation(store)?;
+        // Lowest-priority, one text-only attempt per day/character. Built-in
+        // lines remain usable when models are absent, deferred, or fail.
+        if live
+            && engine.prefs.desktop.setup_complete
+            && engine.prefs.generation.text_enabled
+            && !self.support.attempted
+            && !self.running()
+            && self.waiting.is_none()
+            && self
+                .support_check
+                .is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(60))
+            && self.pending_install.is_none()
+            && !self.data_hold
+            && !engine.paused(clock)
+            && (!env.fullscreen || !engine.prefs.desktop.defer_generation_fullscreen)
+            && (!engine.prefs.generation.ac_only
+                || env.power == kavychka_core::engine::PowerSource::Ac)
+            && !(self.kind == "install" && (self.task_error || self.task_phase == "cancelled"))
+        {
+            let mut text_only = engine.prefs.clone();
+            text_only.generation.tts_model = "system".into();
+            text_only.generation.voice_profile.clear();
+            text_only.generation.runtime = false;
+            self.support_check = Some(std::time::Instant::now());
+            if self.unavailable(store, &text_only)?.is_empty() {
+                self.support.attempted = true;
+                crate::support::save(store, &self.support)?;
+                let mut request = inference::request(&text_only, &[], "support", &day);
+                request["history"] = json!(
+                    crate::support::history(store)?
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                );
+                if let Err(error) = self.start(store, request, "support") {
+                    self.status = format!(
+                        "Поддержка: используются готовые тексты / Encouragement uses ready-made texts: {error}"
+                    );
+                    self.invalidate();
+                }
+            }
+        }
         Ok(())
     }
     /// Called before the reminder transaction; returns a phrase to claim atomically.
@@ -1409,10 +1548,7 @@ impl Manager {
             ));
         }
         let (phrases, total, page) = store
-            .phrase_page(
-                self.library_today.then_some(self.library_day.as_str()),
-                self.library_page,
-            )
+            .phrase_group_page(&self.library_day, self.library_today, self.library_page)
             .map_err(|e| e.to_string())?;
         self.library_page = page;
         let (archived_pending, archived_total, archived_page) = store
@@ -1435,12 +1571,19 @@ impl Manager {
             .phrase_totals(&self.library_day)
             .map_err(|e| e.to_string())?;
         let view = View {
+            support_texts: self.support.texts.clone(),
+            support_generated: self.support.generated,
+            support_index: self.support_index,
+            delivery_states: store
+                .phrase_delivery_states(&phrases)
+                .map_err(|e| e.to_string())?,
             audio_available: phrases
                 .iter()
                 .filter(|r| r.model == "system" || store.audio_file(r).ok().flatten().is_some())
                 .map(|r| r.id.clone())
                 .collect(),
             imported_preset: self.imported_preset.clone(),
+            imported_applied: self.imported_applied,
             all_total,
             today_total,
             task_kind: self.kind.clone(),
@@ -1988,8 +2131,9 @@ mod tests {
         manager.browse(false, usize::MAX);
         let view: View =
             serde_json::from_str(&manager.view(&store, &engine.prefs).unwrap().unwrap()).unwrap();
-        assert_eq!(view.total, 206);
-        assert_eq!(view.phrases.len(), 6);
+        assert_eq!(view.total, 1);
+        assert_eq!(view.phrases.len(), 1);
+        assert_eq!(view.phrases[0].id, "yesterday");
     }
     #[test]
     #[ignore = "explicit installed-model descriptor; no weights downloaded"]
@@ -2273,6 +2417,56 @@ mod tests {
             mono: 1_000_000 + seconds as u64 * 1000,
             date: utc.date_naive(),
         }
+    }
+    #[test]
+    fn encouragement_changes_in_two_local_periods_and_survives_reopening() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let mut prefs = Preferences::default();
+        prefs.desktop.time_zone = "UTC".into();
+        prefs.generation.auto_daily = false;
+        prefs.generation.text_enabled = false;
+        let mut engine = Engine::new(prefs, Default::default(), clock(0)).unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        for (seconds, index) in [(0, 0), (3600, 0), (10801, 1), (20000, 1)] {
+            manager
+                .tick(
+                    &mut store,
+                    &mut engine,
+                    clock(seconds),
+                    Environment::default(),
+                    &mut Effect::default(),
+                    false,
+                )
+                .unwrap();
+            assert_eq!(manager.support_index, index);
+        }
+        let texts = manager.support.texts.clone();
+        let mut reopened = Manager::new(&mut store, None, Default::default()).unwrap();
+        reopened
+            .tick(
+                &mut store,
+                &mut engine,
+                clock(20001),
+                Environment::default(),
+                &mut Effect::default(),
+                false,
+            )
+            .unwrap();
+        assert_eq!(reopened.support_index, 1);
+        assert_eq!(reopened.support.texts, texts);
+        reopened
+            .tick(
+                &mut store,
+                &mut engine,
+                clock(86400),
+                Environment::default(),
+                &mut Effect::default(),
+                false,
+            )
+            .unwrap();
+        assert_eq!(reopened.support_index, 0);
+        assert_ne!(reopened.support.texts, texts);
     }
     fn temp() -> tempfile::TempDir {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../work/pipeline-tests");

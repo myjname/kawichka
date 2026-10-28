@@ -59,7 +59,7 @@ pub fn open() -> Option<std::path::PathBuf> {
     unsafe {
         use windows_sys::Win32::UI::Controls::Dialogs::*;
         let mut name = vec![0u16; 32768];
-        let filter:Vec<u16>="Preset / media / description\0*.kavychka;*.json;*.txt;*.png;*.jpg;*.jpeg;*.gif;*.webp;*.wav;*.flac;*.mp3;*.ogg;*.m4a;*.mp4\0All files\0*.*\0\0".encode_utf16().collect();
+        let filter:Vec<u16>="Персонаж, пресет или медиа / Character, preset or media\0*.kavychka;*.zip;*.json;*.txt;*.png;*.jpg;*.jpeg;*.gif;*.webp;*.wav;*.flac;*.mp3;*.ogg;*.m4a;*.mp4\0Все файлы / All files\0*.*\0\0".encode_utf16().collect();
         let mut dialog: OPENFILENAMEW = std::mem::zeroed();
         dialog.lStructSize = std::mem::size_of_val(&dialog) as u32;
         dialog.lpstrFile = name.as_mut_ptr();

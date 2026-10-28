@@ -12,6 +12,26 @@ worker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(worker)
 
 class WorkerContractTests(unittest.TestCase):
+    def test_encouragement_is_text_only_and_never_publishes_phrase_or_audio(self):
+        from kavychka_local.engine import Engine
+        with tempfile.TemporaryDirectory(dir=ROOT / 'work') as directory:
+            library=Path(directory); job=library/'jobs/job-support';job.mkdir(parents=True)
+            events=[]; texts=[]
+            def text(engine, category, event, progress, **options):
+                self.assertEqual(category,'support')
+                self.assertIs(options['style_retries'],False)
+                self.assertEqual(engine.store.settings()['tts_model'],'system')
+                value='Небольшой шаг сегодня тоже считается. Вариант '+str(len(texts)+1)
+                texts.append(value)
+                return value
+            request=dict(operation='support',work_dir=str(job),library_root=str(library),components_root=str(library/'components'),settings=dict(tts_model='system',text_enabled=True),day='2026-10-28')
+            with patch.object(Engine,'text',text),patch.object(Engine,'speech',side_effect=AssertionError('Support must not synthesize audio')),patch.object(Engine,'direction',side_effect=AssertionError('Support has no acting stage')),patch.object(worker,'emit',side_effect=lambda kind,**data:events.append((kind,data))):
+                worker.run(request)
+            self.assertEqual(events[-1],('result',dict(texts=texts)))
+            self.assertEqual(len(texts),4)
+            self.assertTrue(all(kind in ('stage','result') for kind,_ in events))
+            self.assertEqual(list((job/'audio').iterdir()),[])
+
     def test_retained_environment_top_level_link_is_rejected_without_reading_its_contents(self):
         from types import SimpleNamespace
         with tempfile.TemporaryDirectory(dir=ROOT/'work') as directory:

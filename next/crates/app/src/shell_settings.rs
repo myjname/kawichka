@@ -56,6 +56,33 @@ pub fn refresh(ui: &AppWindow) {
         });
     });
 }
+pub fn retranslate(ui: &AppWindow) {
+    let ids = ui.get_audio_device_ids();
+    let names = ui.get_audio_device_names();
+    let translated = (0..names.row_count())
+        .map(|i| {
+            let name = names.row_data(i).unwrap_or_default();
+            if ids.row_data(i).is_some_and(|id| id.is_empty()) {
+                if ui.get_english() {
+                    "System default".into()
+                } else {
+                    "Как в системе".into()
+                }
+            } else if name == "Выбранное устройство недоступно"
+                || name == "Selected device unavailable"
+            {
+                if ui.get_english() {
+                    "Selected device unavailable".into()
+                } else {
+                    "Выбранное устройство недоступно".into()
+                }
+            } else {
+                name
+            }
+        })
+        .collect::<Vec<SharedString>>();
+    ui.set_audio_device_names(ModelRc::new(VecModel::from(translated)));
+}
 
 pub fn wire(ui: &AppWindow, backend: &Backend) {
     let weak = ui.as_weak();

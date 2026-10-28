@@ -14,6 +14,67 @@ fn strings(values: impl IntoIterator<Item = String>) -> ModelRc<SharedString> {
         values.into_iter().map(Into::into).collect::<Vec<_>>(),
     ))
 }
+fn phrase_status(
+    r: &kavychka_storage::library::Phrase,
+    view: &View,
+) -> (&'static str, &'static str) {
+    let en = view.english;
+    let (state, ru, english) = match view
+        .delivery_states
+        .get(&r.id)
+        .map(String::as_str)
+        .unwrap_or("")
+    {
+        "audio_completed" => ("✓", "Озвучена в напоминании", "Played in a reminder"),
+        "audio_failed" => (
+            "!",
+            "Ошибка озвучки; фраза уже использована",
+            "Speech failed; phrase already used",
+        ),
+        "audio_cancelled" => (
+            "■",
+            "Озвучка остановлена; фраза уже использована",
+            "Speech stopped; phrase already used",
+        ),
+        "audio_started" | "audio_preparing" => (
+            "…",
+            "Озвучка начата; завершение не подтверждено",
+            "Speech requested; completion not confirmed",
+        ),
+        "shown" | "committed" => (
+            "◷",
+            "Использована в напоминании; завершённая озвучка не подтверждена",
+            "Used in a reminder; completed speech not confirmed",
+        ),
+        _ if r.used_at.is_some() => (
+            "◷",
+            "Ранее использована; сведений об озвучке нет",
+            "Previously used; no playback evidence",
+        ),
+        _ if r.rejected => ("×", "Исключена из напоминаний", "Excluded from reminders"),
+        _ if r.day.as_deref() != Some(&view.day) => (
+            "—",
+            "Другой день: не используется сегодня",
+            "Different day: not used today",
+        ),
+        _ if !r.approved => (
+            "?",
+            "Ожидает отбора: нажми «Оставить»",
+            "Needs review: choose Keep",
+        ),
+        _ if !view.audio_available.contains(&r.id) => (
+            "!",
+            "Нет готовой записи: нужна озвучка",
+            "No recording: generate speech",
+        ),
+        _ => (
+            "●",
+            "Доступна для сегодняшних напоминаний",
+            "Available for today's reminders",
+        ),
+    };
+    (state, if en { english } else { ru })
+}
 fn local_status(text: &str, en: bool) -> String {
     text.lines()
         .map(|line| {
@@ -185,8 +246,17 @@ fn refresh_deliveries(ui: &AppWindow) {
     }
 }
 fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
-    let view: View = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let mut view: View = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    view.english = ui.get_english();
     let en = view.english;
+    if view.task_kind == "preset" || view.task_kind == "preset_import" {
+        ui.set_character_feedback(local_status(&view.status, en).into());
+    }
+    let support = strings(view.support_texts.clone());
+    if ui.get_support_texts().iter().collect::<Vec<_>>() != support.iter().collect::<Vec<_>>() {
+        ui.set_support_texts(support);
+    }
+    ui.set_support_index(view.support_index as i32);
     ui.set_generation_running(view.running);
     ui.set_library_status(crate::display_path::text(&local_status(&view.status, en)).into());
     ui.set_task_title(
@@ -210,6 +280,13 @@ fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
                     "Preparing today"
                 } else {
                     "Подготовка дня"
+                }
+            }
+            "support" => {
+                if en {
+                    "Daily encouragement"
+                } else {
+                    "Фразы поддержки"
                 }
             }
             "batch" => {
@@ -263,6 +340,8 @@ fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
         crate::display_path::text(&format!("{}\n{}", view.status, view.task_details)).into(),
     );
     let page_audio = view.audio_available.len();
+    ui.set_library_current_count(view.today_total as i32);
+    ui.set_library_history_count(view.all_total.saturating_sub(view.today_total) as i32);
     ui.set_library_counts(
         if en {
             format!(
@@ -341,6 +420,8 @@ fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
         .phrases
         .iter()
         .map(|r| LibraryItem {
+            state: phrase_status(r, &view).0.into(),
+            state_hint: phrase_status(r, &view).1.into(),
             identifier: r.id.as_str().into(),
             text: r.text.as_str().into(),
             caption: format!(
@@ -392,7 +473,7 @@ fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
                     .unwrap_or(&r.model),
                 if r.used_at.is_some() {
                     if en {
-                        " · played"
+                        " · used"
                     } else {
                         " · использована"
                     }
@@ -456,7 +537,26 @@ fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
             has_audio: view.audio_available.contains(&r.id),
         })
         .collect::<Vec<_>>();
-    ui.set_library_items(ModelRc::new(VecModel::from(list)));
+    let current = ui.get_library_items();
+    if let Some(model) = current.as_any().downcast_ref::<VecModel<LibraryItem>>() {
+        if model.row_count() == list.len()
+            && list.iter().enumerate().all(|(i, row)| {
+                model
+                    .row_data(i)
+                    .is_some_and(|old| old.identifier == row.identifier)
+            })
+        {
+            for (i, row) in list.into_iter().enumerate() {
+                if model.row_data(i).as_ref() != Some(&row) {
+                    model.set_row_data(i, row);
+                }
+            }
+        } else {
+            model.set_vec(list);
+        }
+    } else {
+        ui.set_library_items(ModelRc::new(VecModel::from(list)));
+    }
     let mut text_readiness = vec![];
     let mut voice_readiness = vec![];
     let mut text_names = vec![];
@@ -573,7 +673,17 @@ fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
             .unwrap_or_default()
     };
     ui.set_voice_profile_ids(strings(view.profiles.iter().map(|(id, _)| id.clone())));
-    ui.set_voice_profile_names(strings(view.profiles.iter().map(|(_, name)| name.clone())));
+    ui.set_voice_profile_names(strings(view.profiles.iter().map(|(id, name)| {
+        if id.is_empty() {
+            if en {
+                "Kavychka · default voice".into()
+            } else {
+                "Кавычка · обычный голос".into()
+            }
+        } else {
+            name.clone()
+        }
+    })));
     ui.set_voice_profile_index(
         ui.get_voice_profile_ids()
             .iter()
@@ -589,6 +699,17 @@ fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
     Ok(())
 }
 pub fn wire(ui: &AppWindow, backend: &Backend) {
+    let weak = ui.as_weak();
+    ui.on_retranslate(move || {
+        if let Some(ui) = weak.upgrade() {
+            let json = ui.get_library_json();
+            if !json.is_empty() {
+                let _ = render(&ui, json.as_str());
+            }
+            crate::presets_ui::retranslate(&ui);
+            crate::shell_settings::retranslate(&ui);
+        }
+    });
     let weak = ui.as_weak();
     ui.on_path_selected(move || {
         if let Some(ui) = weak.upgrade() {
@@ -729,6 +850,8 @@ pub fn wire(ui: &AppWindow, backend: &Backend) {
     ui.on_refresh_library(move || call(Command::RefreshLibrary, false));
     let call = dispatch.clone();
     ui.on_clear_recordings(move || call(Command::ClearRecordings, false));
+    let call = dispatch.clone();
+    ui.on_hide_phrase(move |id| call(Command::HidePhrase(id.to_string()), false));
     let cancellation = backend.cancellation.clone();
     ui.on_cancel_generation(move || cancellation.store(true, std::sync::atomic::Ordering::Release));
     let weak = ui.as_weak();

@@ -30,13 +30,91 @@ component ActionButton inherits Button {
     horizontal-stretch: 0;
     max-width: 250px;
 }
-component Toggle inherits CheckBox {
+component ChoiceToggle inherits CheckBox {
     height: 28px;
     vertical-stretch: 0;
     horizontal-stretch: 0;
 }
+// All independent boolean settings share Field's value column.
+component Hint inherits Text {
+    min-width:0px;
+    color: Colors.muted;
+    font-size: 12px;
+    wrap: word-wrap;
+    vertical-stretch: 0;
+}
+component Toggle inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    in property <length> label-width: 172px;
+    callback toggled;
+    property <length> control-height:max(34px, caption.preferred-height + 4px);
+    height: root.control-height + (root.hint=="" ? 0px : detail.preferred-height+5px);
+    vertical-stretch: 0;
+    caption := Text {
+        x:0px; y:0px;
+        width: root.label-width - 8px; height: root.control-height;
+        text: root.text; wrap: word-wrap; vertical-alignment: center;
+        color: root.enabled ? Colors.ink : Colors.muted; font-size: 13px;
+    }
+    TouchArea {
+        x:0px; y:0px;
+        width: root.label-width - 8px; height: root.control-height; enabled:root.enabled;
+        clicked => { control.focus(); root.checked = !root.checked; root.toggled(); }
+    }
+    control := CheckBox {
+        x: root.label-width; y:0px; width: 32px; height: root.control-height;
+        enabled: root.enabled; checked <=> root.checked;
+        accessible-label: root.text;
+        toggled => { control.focus(); root.toggled(); }
+    }
+    detail := Hint {
+        x:root.label-width; y:root.control-height+3px;
+        width:max(0px,min(600px,parent.width - root.label-width));
+        visible:root.hint!=""; text:root.hint;
+    }
+}
+component TabButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    width:max(100px, label.preferred-width + 24px); height:36px;
+    horizontal-stretch:0; vertical-stretch:0;
+    background:root.selected ? Colors.soft : transparent;
+    accessible-role: tab; accessible-label:root.text;
+    accessible-checkable:true; accessible-checked:root.selected;
+    accessible-action-default=>{root.clicked();}
+    label := Text { text:root.text; horizontal-alignment:center; vertical-alignment:center; color:root.selected ? Colors.accent : Colors.muted; }
+    Rectangle { y:parent.height - 2px; height:2px; width:parent.width; background:root.selected ? Colors.accent : transparent; }
+    focus := FocusScope {
+        key-pressed(event)=>{ if(event.text==" " || event.text=="\n"){ root.clicked(); return accept; } return reject; }
+    }
+    TouchArea { clicked=>{ focus.focus(); root.clicked(); } }
+}
 export struct LibraryItem {
-    identifier:string, text:string, caption:string, kept:bool, excluded:bool, has-audio:bool
+    identifier:string, text:string, caption:string, kept:bool, excluded:bool, has-audio:bool, state:string, state-hint:string
+}
+component IconButton inherits Rectangle {
+    in property <string> tip;
+    in property <image> icon;
+    in property <bool> enabled:true;
+    callback clicked;
+    width:30px; height:30px; horizontal-stretch:0; vertical-stretch:0;
+    border-width:1px; border-radius:4px;
+    border-color:focus.has-focus ? Colors.accent : Colors.line;
+    background:area.has-hover && root.enabled ? Colors.soft : Colors.surface;
+    accessible-role:button; accessible-enabled:root.enabled;
+    accessible-label:root.tip;
+    accessible-action-default=>{ if(root.enabled){root.clicked();} }
+    Image { x:6px; y:6px; width:18px; height:18px; source:root.icon; colorize:Colors.ink; opacity:root.enabled ? 1 : 0.4; }
+    focus := FocusScope {
+        enabled:root.enabled;
+        key-pressed(event)=>{ if(event.text==" " || event.text=="\n"){root.clicked();return accept;}return reject; }
+    }
+    area := TouchArea { clicked=>{ if(root.enabled){focus.focus();root.clicked();} } }
+    Tooltip { text:@markdown("\{root.tip}"); }
 }
 export struct PendingItem {
     identifier:string, text:string, caption:string
@@ -88,7 +166,7 @@ export component RemovalWindow inherits Window {
             vertical-stretch:1;
             accessible-label:root.english ? "Removal contents" : "Точный состав удаления";
         }
-        Toggle {
+        ChoiceToggle {
             text:root.english ? "I reviewed and confirm removal" : "Я проверил состав и подтверждаю удаление";
             checked <=> root.confirmed;
             enabled:root.reviewed && !root.busy && !root.done;
@@ -263,7 +341,7 @@ export component SetupWindow inherits Window {
                     enabled: !root.busy && !root.done && !root.portable;
                     text <=> root.data-path;
                 }
-                Toggle {
+                ChoiceToggle {
                     text: "Дополнительно / Advanced";
                     checked <=> root.advanced;
                     enabled: !root.busy && !root.done;
@@ -317,9 +395,9 @@ export component SetupWindow inherits Window {
             color: Colors.ink;
         }
         HorizontalLayout {
-            height: 84px;
+            min-height:110px;
             AboutSlint {
-                height: 84px;
+                min-height:110px; preferred-height:110px;
                 width: 180px;
             }
             Rectangle {
@@ -363,12 +441,7 @@ component SectionTitle inherits Text {
     vertical-stretch: 0;
     vertical-alignment: center;
 }
-component Hint inherits Text {
-    color: Colors.muted;
-    font-size: 12px;
-    wrap: word-wrap;
-    vertical-stretch: 0;
-}
+
 component Label inherits Text {
     color: Colors.ink;
     font-family: "Segoe UI";
@@ -447,29 +520,41 @@ component Nav inherits Rectangle {
 }
 component Field inherits Rectangle {
     in property <string> title;
+    in property <string> hint;
     in property <length> label-width: 172px;
     in property <length> control-width: 330px;
-    height: 34px;
+    in property <length> control-min-height:34px;
+    property <length> control-height:max(root.control-min-height,caption.preferred-height+4px);
+    height: root.control-height + (root.hint == "" ? 0px : detail.preferred-height + 5px);
     vertical-stretch: 0;
     background: transparent;
-    Label {
+    caption := Text {
         x: 0px;
         y: 0px;
         width: root.label-width - 8px;
-        height: parent.height;
+        height: root.control-height;
         text: root.title;
         wrap: word-wrap;
         font-size: 13px;
+        color:Colors.ink;
+        vertical-alignment:center;
+        min-width:0px;
     }
     Rectangle {
         x: root.label-width;
-        y: 0px;
+        y: (root.control-height - root.control-min-height)/2;
         width: max(0px,min(root.control-width,parent.width - root.label-width));
-        height: parent.height;
+        height: root.control-min-height;
         HorizontalLayout {
             padding: 0px;
             @children
         }
+    }
+    detail := Hint {
+        visible: root.hint != "";
+        x: root.label-width; y: root.control-height+3px;
+        width: max(0px, min(600px, parent.width - root.label-width));
+        text: root.hint;
     }
 }
 component CloseDialog inherits Rectangle {
@@ -565,7 +650,45 @@ component CloseDialog inherits Rectangle {
         }
     }
 }
+component RemovePhraseDialog inherits Rectangle {
+    in property <bool> english;
+    callback cancel;
+    callback confirm;
+    background:#00000070;
+    TouchArea { }
+    FocusScope {
+        init=>{ cancel-button.focus(); }
+        key-pressed(event)=>{
+            if(event.text==Key.Escape){root.cancel();return accept;}
+            if(event.text==Key.Tab || event.text==Key.Backtab){
+                if(cancel-button.has-focus){remove-button.focus();}else{cancel-button.focus();}
+                return accept;
+            }
+            return reject;
+        }
+        Card {
+            x:(parent.width - self.width)/2; y:(parent.height - self.height)/2;
+            width:min(460px,parent.width - 48px); height:200px;
+            VerticalLayout {
+                padding:20px; spacing:12px;
+                SectionTitle { text:root.english ? "Remove this phrase?" : "Удалить эту фразу?"; }
+                Hint { text:root.english ? "It will leave the list and reminders. Its text stays in anti-repeat history; the recording follows the daily audio cleanup policy." : "Фраза исчезнет из списка и напоминаний. Текст останется для защиты от повторов; запись — до обычной очистки аудио."; }
+                HorizontalLayout {
+                    spacing:8px; alignment:end; vertical-stretch:0;
+                    cancel-button := ActionButton { text:root.english ? "Cancel" : "Отмена"; clicked=>{root.cancel();} }
+                    remove-button := ActionButton { text:root.english ? "Remove" : "Удалить"; clicked=>{root.confirm();} }
+                }
+            }
+        }
+    }
+}
 export component AppWindow inherits Window {
+    in property <[string]> support-texts;
+    in-out property <int> support-index;
+    in property <image> today-image;
+    in property <bool> today-custom;
+    in property <bool> today-pixelated;
+
     in property <string> task-title;
     in property <string> task-details;
     in property <float> task-progress: -1;
@@ -579,6 +702,11 @@ export component AppWindow inherits Window {
     in-out property <bool> library-controls;
     in-out property <string> expanded-phrase;
     in-out property <bool> character-options;
+    in property <string> character-feedback;
+    in-out property <bool> import-help;
+    in-out property <bool> preset-import-options;
+    in property <bool> preset-editing-visual;
+    in property <string> preset-body-label: root.english ? "Character description" : "Описание характера";
     in-out property <bool> preset-management;
     in-out property <bool> delivery-editor;
     in-out property <bool> data-advanced;
@@ -687,7 +815,12 @@ export component AppWindow inherits Window {
     in property <string> library-status;
     in property <string> library-summary;
     in property <bool> generation-running;
-    in-out property <bool> library-today;
+    in-out property <bool> library-today:true;
+    in-out property <bool> library-support;
+    in property <int> library-current-count;
+    in property <int> library-history-count;
+    in-out property <string> delete-phrase-id;
+    callback hide-phrase(string);
     in property <int> library-page-index;
     in property <bool> library-has-next;
     in property <string> library-page-caption;
@@ -795,6 +928,8 @@ export component AppWindow inherits Window {
     }
     in-out property <bool> exit-after-save;
     out property <bool> english: language-index == 1;
+    callback retranslate;
+    changed english=>{root.retranslate();}
     callback save;
     callback discard;
     callback quit;
@@ -1110,6 +1245,22 @@ export component AppWindow inherits Window {
         VerticalLayout {
             padding:0px;
             spacing:10px;
+            if root.page==0 : Card {
+                HorizontalLayout {
+                    padding:16px; spacing:16px;
+                    Image {
+                        width:100px; height:100px; horizontal-stretch:0; vertical-stretch:0;
+                        source:root.today-custom ? root.today-image : @image-url("../../design-preview/ui/quote.svg");
+                        image-fit:contain; image-rendering:root.today-pixelated ? pixelated : smooth;
+                        accessible-label:root.english ? "Your companion" : "Твой персонаж";
+                    }
+                    Text {
+                        text:root.support-texts.length>0 ? root.support-texts[mod(root.support-index,root.support-texts.length)] : (root.english ? "One small step is enough to begin." : "Для начала достаточно одного небольшого шага.");
+                        wrap:word-wrap; color:Colors.ink; font-size:15px; vertical-alignment:center;
+                        min-width:0px;
+                    }
+                }
+            }
             if root.page == 0 : Card {
                 VerticalLayout {
                     padding:16px;
@@ -1290,7 +1441,7 @@ export component AppWindow inherits Window {
                         alignment:start;
                         min-height:32px;
                         vertical-stretch:0;
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Mo" : "Пн";
                             checked<=>root.monday;
                             toggled=>{
@@ -1298,7 +1449,7 @@ export component AppWindow inherits Window {
                             }
                             max-width:52px;
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Tu" : "Вт";
                             checked<=>root.tuesday;
                             toggled=>{
@@ -1306,7 +1457,7 @@ export component AppWindow inherits Window {
                             }
                             max-width:52px;
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "We" : "Ср";
                             checked<=>root.wednesday;
                             toggled=>{
@@ -1314,7 +1465,7 @@ export component AppWindow inherits Window {
                             }
                             max-width:52px;
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Th" : "Чт";
                             checked<=>root.thursday;
                             toggled=>{
@@ -1322,7 +1473,7 @@ export component AppWindow inherits Window {
                             }
                             max-width:52px;
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Fr" : "Пт";
                             checked<=>root.friday;
                             toggled=>{
@@ -1330,7 +1481,7 @@ export component AppWindow inherits Window {
                             }
                             max-width:52px;
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Sa" : "Сб";
                             checked<=>root.saturday;
                             toggled=>{
@@ -1338,7 +1489,7 @@ export component AppWindow inherits Window {
                             }
                             max-width:52px;
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Su" : "Вс";
                             checked<=>root.sunday;
                             toggled=>{
@@ -1469,9 +1620,7 @@ export component AppWindow inherits Window {
                                 root.edited();
                             }
                         }
-                    }
-                    Hint {
-                        text:root.english ? "Includes weekends. The timer starts after Breakfast done." : "Включая выходные. Таймер начинается после кнопки «Завтрак закончен».";
+                        hint:root.english ? "Includes weekends. The timer starts after Breakfast done." : "Включая выходные. Таймер начинается после кнопки «Завтрак закончен».";
                     }
                 }
             }
@@ -1480,11 +1629,11 @@ export component AppWindow inherits Window {
                     padding:16px;
                     spacing:8px;
                     Label {
-                        text:root.library-counts!="" ? root.library-counts : root.library-summary;
+                        text:root.library-support ? ((root.english ? "Support today: " : "Поддержка на сегодня: ")+root.support-texts.length) : (root.library-counts!="" ? root.library-counts : root.library-summary);
                         min-height:25px;
                         font-weight:600;
                     }
-                    HorizontalLayout {
+                    if !root.library-support : HorizontalLayout {
                         spacing:8px;
                         alignment:start;
                         min-height:32px;
@@ -1516,13 +1665,26 @@ export component AppWindow inherits Window {
                         alignment:start;
                         min-height:32px;
                         vertical-stretch:0;
-                        Toggle {
-                            text:root.english ? "Today only" : "Только сегодня";
-                            checked<=>root.library-today;
-                            toggled=>{
-                                root.library-filter();
-                            }
+                        TabButton {
+                            text:(root.english ? "Current · " : "Актуальные · ")+root.library-current-count;
+                            selected:root.library-today && !root.library-support;
+                            clicked=>{ root.library-support=false; root.library-today=true; root.library-filter(); }
                         }
+                        TabButton {
+                            text:(root.english ? "History · " : "История · ")+root.library-history-count;
+                            selected:!root.library-today && !root.library-support;
+                            clicked=>{ root.library-support=false; root.library-today=false; root.library-filter(); }
+                        }
+                        TabButton {
+                            text:root.english ? "Support" : "Поддержка"; selected:root.library-support;
+                            clicked=>{ root.library-support=true; }
+                        }
+                    }
+                    if !root.library-support : Hint {
+                        text:root.english ? "● Available today · ✓ Played · ◷ Used without confirmed speech · × Excluded · ? Review · ! Missing audio / error · ■ Stopped · … Speech requested · — History" : "● Доступна сегодня · ✓ Озвучена · ◷ Использована без подтверждённой озвучки · × Исключена · ? На отбор · ! Нет записи / ошибка · ■ Остановлена · … Озвучка начата · — История";
+                    }
+                    if !root.library-support : HorizontalLayout {
+                        spacing:8px; alignment:start; vertical-stretch:0;
                         ActionButton {
                             text:root.english ? "Previous" : "Назад";
                             enabled:root.library-page-index>0;
@@ -1545,7 +1707,7 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if root.page==2 && root.library-controls : Card {
+            if root.page==2 && !root.library-support && root.library-controls : Card {
                 VerticalLayout {
                     padding:16px;
                     spacing:8px;
@@ -1570,21 +1732,21 @@ export component AppWindow inherits Window {
                         alignment:start;
                         min-height:32px;
                         vertical-stretch:0;
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Breaks" : "Перерывы";
                             checked<=>root.category-break;
                             toggled=>{
                                 root.edited();
                             }
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Breakfast" : "Завтрак";
                             checked<=>root.category-breakfast;
                             toggled=>{
                                 root.edited();
                             }
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Lunch" : "Обед";
                             checked<=>root.category-lunch;
                             toggled=>{
@@ -1597,14 +1759,14 @@ export component AppWindow inherits Window {
                         alignment:start;
                         min-height:32px;
                         vertical-stretch:0;
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Dinner" : "Ужин";
                             checked<=>root.category-dinner;
                             toggled=>{
                                 root.edited();
                             }
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Stretch" : "Разминка";
                             checked<=>root.category-exercise;
                             toggled=>{
@@ -1680,91 +1842,69 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if root.page==2 : VerticalLayout {
-                spacing:1px;
-                for item in root.library-items : Rectangle {
-                    height:root.expanded-phrase==item.identifier ? 148px : 94px;
-                    vertical-stretch:0;
-                    background:Colors.surface;
-                    Rectangle {
-                        x:0px;
-                        y:0px;
-                        height:1px;
-                        width:parent.width;
-                        background:Colors.line;
-                    }
-                    Label {
-                        x:10px;
-                        y:6px;
-                        width:parent.width - 20px;
-                        height:20px;
-                        font-size:11px;
-                        color:Colors.muted;
-                        text:item.caption;
-                    }
-                    Label {
-                        x:10px;
-                        y:29px;
-                        width:parent.width - 110px;
-                        height:root.expanded-phrase==item.identifier ? 72px : 42px;
-                        wrap:word-wrap;
-                        text:item.text;
-                        font-size:13px;
-                    }
-                    ActionButton {
-                        x:parent.width - 90px;
-                        y:32px;
-                        width:80px;
-                        text:item.has-audio ? (root.english ? "Listen" : "Слушать") : (root.english ? "No audio" : "Нет аудио");
-                        enabled:item.has-audio;
-                        clicked=>{
-                            root.play-phrase(item.identifier);
-                        }
-                    }
-                    HorizontalLayout {
-                        x:10px;
-                        y:parent.height - 27px;
-                        width:parent.width - 20px;
-                        height:24px;
-                        spacing:6px;
-                        alignment:start;
-                        ActionButton {
-                            height:24px;
-                            text:root.english ? "Keep" : "Оставить";
-                            enabled:!item.kept || item.excluded;
-                            clicked=>{
-                                root.select-phrase(item.identifier,true);
-                            }
-                        }
-                        ActionButton {
-                            height:24px;
-                            text:root.english ? "Exclude" : "Исключить";
-                            enabled:!item.excluded;
-                            clicked=>{
-                                root.select-phrase(item.identifier,false);
-                            }
-                        }
-                        ActionButton {
-                            height:24px;
-                            text:root.english ? "Revoice" : "Переозвучить";
-                            enabled:!root.generation-running;
-                            clicked=>{
-                                root.regenerate-speech(item.identifier);
-                            }
-                        }
-                        ActionButton {
-                            height:24px;
-                            text:root.expanded-phrase==item.identifier ? (root.english ? "Less" : "Свернуть") : (root.english ? "Full text" : "Весь текст");
-                            clicked=>{
-                                root.expanded-phrase=root.expanded-phrase==item.identifier ? "" : item.identifier;
-                            }
-                        }
-                    }
-                }
-                if root.library-items.length==0 : Hint {
-                    text:root.english ? "No phrases in this view. Prepare today or change the filter." : "Фраз в этом списке нет. Подготовь день или измени фильтр.";
+            if root.page==2 && root.library-support : Card {
+                VerticalLayout {
+                    padding:16px; spacing:10px;
+                    SectionTitle { text:(root.english ? "Today's support · " : "Поддержка на сегодня · ")+root.support-texts.length; }
+                    Hint { text:root.english ? "Text only. These lines do not enter the reminder queue or generate audio." : "Только текст. Эти фразы не попадают в очередь напоминаний и не озвучиваются."; }
+                    for text in root.support-texts : Text { text:text; wrap:word-wrap; color:Colors.ink; font-size:14px; vertical-stretch:0; }
                 }
             }
+            if root.page==2 && !root.library-support : VerticalLayout {
+                spacing:1px;
+                for item in root.library-items : Rectangle {
+                    height: max(72px, (root.expanded-phrase==item.identifier ? phrase.preferred-height : 40px) + 34px);
+                    vertical-stretch:0; background:Colors.surface;
+                    Rectangle { height:1px; width:parent.width; background:Colors.line; }
+                    Label {
+                        x:10px; y:5px; height:19px; width:parent.width - 20px;
+                        font-size:11px; color:Colors.muted; text:item.caption;
+                    }
+                    phrase := Text {
+                        min-width:0px;
+                        x:10px; y:27px; width:max(80px,parent.width - 258px);
+                        height:root.expanded-phrase==item.identifier ? self.preferred-height : 40px;
+                        text:item.text; color:Colors.ink; font-size:13px; wrap:word-wrap;
+                        overflow:elide;
+                    }
+                    HorizontalLayout {
+                        x:parent.width - 238px; y:29px; width:228px; height:30px;
+                        spacing:3px; alignment:end;
+                        Rectangle {
+                            width:27px; height:30px; horizontal-stretch:0;
+                            accessible-role:text; accessible-label:item.state-hint;
+                            Text { text:item.state; color:Colors.accent; horizontal-alignment:center; vertical-alignment:center; font-size:18px; }
+                            Tooltip { text:@markdown("\{item.state-hint}"); }
+                        }
+                        IconButton {
+                            icon:@image-url("icons/play.svg"); tip:item.has-audio ? (root.english ? "Listen" : "Прослушать") : (root.english ? "No recording" : "Нет готовой записи");
+                            enabled:item.has-audio; clicked=>{ root.play-phrase(item.identifier); }
+                        }
+                        IconButton {
+                            icon:item.kept && !item.excluded ? @image-url("icons/exclude.svg") : @image-url("icons/check.svg");
+                            tip:item.kept && !item.excluded ? (root.english ? "Exclude from reminders" : "Исключить из напоминаний") : (root.english ? "Keep for reminders" : "Оставить для напоминаний");
+                            clicked=>{ root.select-phrase(item.identifier, !item.kept || item.excluded); }
+                        }
+                        IconButton {
+                            icon:@image-url("icons/refresh.svg"); tip:root.generation-running ? (root.english ? "Wait for the current task" : "Дождись текущей задачи") : root.dirty ? (root.english ? "Save settings first" : "Сначала сохрани настройки") : (root.english ? "Regenerate speech" : "Переозвучить");
+                            enabled:!root.generation-running && !root.dirty;
+                            clicked=>{ root.regenerate-speech(item.identifier); }
+                        }
+                        IconButton {
+                            icon:@image-url("icons/expand.svg");
+                            tip:root.expanded-phrase==item.identifier ? (root.english ? "Collapse" : "Свернуть") : (root.english ? "Full text" : "Весь текст");
+                            clicked=>{ root.expanded-phrase=root.expanded-phrase==item.identifier ? "" : item.identifier; }
+                        }
+                        IconButton {
+                            icon:@image-url("icons/trash.svg"); tip:root.english ? "Remove from library…" : "Удалить из библиотеки…";
+                            enabled:!root.generation-running;
+                            clicked=>{ root.delete-phrase-id=item.identifier; }
+                        }
+                    }
+                }
+                if root.library-items.length==0 : Hint { text:root.english ? "No phrases in this list." : "В этом списке пока нет фраз."; }
+            }
+
             if root.page == 3 : Card {
                 VerticalLayout {
                     padding:16px;
@@ -1790,9 +1930,7 @@ export component AppWindow inherits Window {
                                 root.edited();
                             }
                         }
-                    }
-                    Hint {
-                        text:!root.text-enabled ? (root.english ? "Ready-made phrases are used. Choose a text model to create your own." : "Используются готовые фразы. Для своих выбери модель текста.") : root.text-readiness-list[root.text-model-index];
+                        hint:!root.text-enabled ? (root.english ? "Ready-made phrases are used. Choose a text model to create your own." : "Используются готовые фразы. Для своих выбери модель текста.") : root.text-readiness-list[root.text-model-index];
                     }
                     Field {
                         title:root.english ? "Voice model" : "Модель голоса";
@@ -1804,9 +1942,7 @@ export component AppWindow inherits Window {
                                 root.edited();
                             }
                         }
-                    }
-                    Hint {
-                        text:root.voice-readiness-list[root.voice-model-index];
+                        hint:root.voice-readiness-list[root.voice-model-index];
                     }
                     Field {
                         title:root.english ? "Voice preset" : "Голосовой пресет";
@@ -1967,67 +2103,41 @@ export component AppWindow inherits Window {
             }
             if root.page == 4 : Card {
                 VerticalLayout {
-                    padding:16px;
-                    spacing:8px;
-                    SectionTitle {
-                        text:root.english ? "Choose a character" : "Выбрать персонажа";
-                    }
+                    padding:16px; spacing:8px;
+                    SectionTitle { text:root.english ? "Choose a character" : "Выбрать персонажа"; }
                     Field {
                         title:root.english ? "Complete character" : "Персонаж целиком";
+                        hint:root.english ? "Character, voice, appearance and delivery. Edit each part in Components." : "Характер, голос, внешность и подача. Отдельные части — во вкладке «Составляющие».";
                         CompactComboBox {
-                            accessible-label:parent.title;
-                            model:root.character-names;
+                            accessible-label:parent.title; model:root.character-names;
                             current-index<=>root.character-index;
-                            selected=>{
-                                root.character-selected();
-                                root.edited();
-                            }
-                        }
-                    }
-                    Hint {
-                        text:root.english ? "A pack applies character, voice, appearance and delivery together. Each part can be changed below." : "Набор применяет характер, голос, внешность и подачу вместе. Любую часть можно изменить ниже.";
-                    }
-                    HorizontalLayout {
-                        spacing:8px;
-                        alignment:start;
-                        min-height:32px;
-                        vertical-stretch:0;
-                        ActionButton {
-                            text:root.english ? "Import character…" : "Импорт персонажа…";
-                            clicked=>{
-                                root.import-character();
-                            }
-                        }
-                        ActionButton {
-                            text:root.english ? "Edit components" : "Изменить составляющие";
-                            clicked=>{
-                                root.character-options=!root.character-options;
-                            }
-                        }
-                        ActionButton {
-                            text:root.english ? "My presets" : "Мои пресеты";
-                            clicked=>{
-                                root.preset-management=!root.preset-management;
-                            }
+                            selected=>{ root.character-selected(); root.edited(); }
                         }
                     }
                     Field {
-                        title:root.english ? "Name your pack" : "Название своего набора";
-                        CompactEdit {
-                            text<=>root.character-pack-name;
-                            accessible-label:parent.title;
-                        }
+                        title:root.english ? "New pack name" : "Имя нового набора";
+                        CompactEdit { text<=>root.character-pack-name; accessible-label:parent.title; }
                     }
-                    ActionButton {
-                        text:root.english ? "Save as character" : "Сохранить как персонажа";
-                        enabled:!root.generation-running;
-                        clicked=>{
-                            root.save-character-pack();
-                        }
+                    HorizontalLayout {
+                        spacing:8px; alignment:start; vertical-stretch:0;
+                        ActionButton { text:root.english ? "Import character…" : "Импорт персонажа…"; enabled:!root.generation-running; clicked=>{ root.import-character(); } }
+                        ActionButton { text:root.english ? "Save a new pack" : "Сохранить новый набор"; enabled:!root.generation-running; clicked=>{ root.save-character-pack(); } }
                     }
+                    if root.character-feedback!="" : Hint { text:root.character-feedback; color:Colors.accent; }
                 }
             }
-            if root.page==4 && root.character-options : Card {
+            if root.page==4 : HorizontalLayout {
+                spacing:4px; alignment:start; vertical-stretch:0; height:36px;
+                TabButton {
+                    text:root.english ? "Components" : "Составляющие"; selected:!root.preset-management;
+                    clicked=>{ root.character-options=true; root.preset-management=false; }
+                }
+                TabButton {
+                    text:root.english ? "My presets" : "Мои пресеты"; selected:root.preset-management;
+                    clicked=>{ root.preset-management=true; root.character-options=false; }
+                }
+            }
+            if root.page==4 && !root.preset-management : Card {
                 VerticalLayout {
                     padding:16px;
                     spacing:8px;
@@ -2153,14 +2263,26 @@ export component AppWindow inherits Window {
                         font-size: 15px;
                         font-weight: 600;
                     }
-                    CompactComboBox {
-                        accessible-label: root.english ? "Import type" : "Тип импорта";
-                        model: root.english ? ["Character", "Voice", "Appearance"] : ["Характер", "Голос", "Внешность"];
-                        current-index <=> root.import-kind;
+                    ActionButton {
+                        text:root.preset-import-options ? (root.english ? "Hide component import" : "Скрыть импорт части") : (root.english ? "Import a component…" : "Импорт отдельной части…");
+                        clicked=>{ root.preset-import-options=!root.preset-import-options; }
                     }
-                    Label {
+                    if root.preset-import-options : VerticalLayout {
+                        spacing:8px;
+                    SectionTitle { text:root.english ? "Import" : "Импорт"; }
+                    Field { title:root.english ? "File contents" : "Содержимое файла";
+                        CompactComboBox {
+                            accessible-label: root.english ? "Import type" : "Тип импорта";
+                            model: root.english ? ["Character", "Voice", "Appearance"] : ["Характер", "Голос", "Внешность"];
+                            current-index <=> root.import-kind;
+                        } }
+                    ActionButton {
+                        text:root.import-help ? (root.english ? "Hide requirements" : "Скрыть требования") : (root.english ? "File requirements…" : "Требования к файлам…");
+                        clicked=>{ root.import-help=!root.import-help; }
+                    }
+
+                    if root.import-help : Hint {
                         text: root.english ? "Import .kavychka / preset.json, TXT, image, or audio. Voice: 1–30 seconds of clean speech, at least 16 kHz; transcript should match. Images: up to 40M pixels. GIF: up to 300 frames and 40M decoded pixels in total. Codex atlas: 1536 × 1872. Files up to 200 MiB. Audio is converted locally when a compatible media runtime is installed." : "Импорт .kavychka / preset.json, TXT, картинки или звука. Голос: 1–30 секунд чистой речи, от 16 кГц; расшифровка должна совпадать. Картинка: до 40 млн пикселей. GIF: до 300 кадров и суммарно 40 млн декодированных пикселей. Атлас Codex: 1536 × 1872. До 200 МиБ. Звук преобразуется локально при установленной совместимой среде медиа.";
-                        height: 120px;
                         wrap: word-wrap;
                         color: Colors.muted;
                         font-size: 12px;
@@ -2187,6 +2309,7 @@ export component AppWindow inherits Window {
                         }
                     }
                     if root.import-kind == 1 : Field {
+                        control-min-height:80px;
                         title: root.english ? "Transcript for imported audio · optional" : "Расшифровка импортируемого голоса · необязательно";
                         TextEdit {
                             accessible-label: parent.title;
@@ -2194,8 +2317,10 @@ export component AppWindow inherits Window {
                             height: 80px;
                         }
                     }
+                    }
+                    SectionTitle { text:root.english ? "Saved presets" : "Сохранённые пресеты"; }
                     Field {
-                        title: root.english ? "Edit preset · new character" : "Редактировать пресет · новый характер";
+                        title: root.english ? "Preset" : "Пресет";
                         CompactComboBox {
                             accessible-label: parent.title;
                             model: root.preset-names;
@@ -2205,36 +2330,43 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
-                    CompactEdit {
-                        accessible-label: root.english ? "Preset name" : "Название пресета";
-                        text <=> root.preset-name;
-                        placeholder-text: root.english ? "Preset name" : "Название пресета";
-                    }
-                    if root.reference-names.length>1 : CompactComboBox {
-                        accessible-label: root.english ? "Voice reference" : "Голосовой референс";
-                        model: root.reference-names;
-                        current-index <=> root.reference-index;
-                        selected => {
-                            root.reference-selected();
+                    Field { title:root.english ? "Name" : "Название";
+                        CompactEdit {
+                            accessible-label: root.english ? "Preset name" : "Название пресета";
+                            text <=> root.preset-name;
+                            placeholder-text: root.english ? "Preset name" : "Название пресета";
+                        } }
+
+                    if root.reference-names.length>1 : Field {
+                        title:root.english ? "Edit component" : "Редактировать часть";
+                        CompactComboBox {
+                            accessible-label: root.english ? "Voice reference" : "Голосовой референс";
+                            model: root.reference-names;
+                            current-index <=> root.reference-index;
+                            selected => {
+                                root.reference-selected();
+                            }
                         }
                     }
-                    TextEdit {
+                    Hint { text:root.preset-body-label; }
+                    if !root.preset-editing-visual : TextEdit {
                         accessible-label: root.english ? "Preset content" : "Содержимое пресета";
                         text <=> root.preset-body;
                         height: 130px;
                     }
-                    if root.preset-has-visual : Field {
+                    if root.preset-editing-visual : Field {
                         title: root.english ? "Appearance layout" : "Формат внешности";
                         CompactComboBox {
                             accessible-label: parent.title;
-                            model: root.english ? ["Auto", "Image", "Codex atlas 1536 × 1872", "Pixel art · sharp steps", "Smooth artwork"] : ["Авто", "Изображение", "Атлас Codex 1536 × 1872", "Пиксели · чёткие ступени", "Плавное изображение"];
+                            model: root.english ? ["Auto", "Image", "Codex atlas 1536 × 1872", "Pixel art · nearest", "Smooth artwork"] : ["Авто", "Изображение", "Атлас Codex 1536 × 1872", "Пиксели · nearest", "Плавное изображение"];
                             current-index <=> root.visual-layout;
                         }
                     }
                     HorizontalLayout {
-                        spacing: 10px;
+                        spacing: 8px;
+                        alignment:start; vertical-stretch:0;
                         ActionButton {
-                            text: root.english ? "Save preset" : "Сохранить пресет";
+                            text: root.english ? "Save changes" : "Сохранить изменения";
                             clicked => {
                                 root.save-preset();
                             }
@@ -2424,48 +2556,27 @@ export component AppWindow inherits Window {
                         toggled=>{
                             root.edited();
                         }
+                        hint:root.english ? "Otherwise repeats stop after sufficient mouse and keyboard inactivity." : "Иначе повтор прекращается после настоящего отдыха от мыши и клавиатуры.";
                     }
-                    Hint {
-                        text:root.english ? "Otherwise repeats stop after sufficient mouse and keyboard inactivity." : "Иначе повтор прекращается после настоящего отдыха от мыши и клавиатуры.";
-                    }
-                    HorizontalLayout {
-                        spacing:8px;
-                        alignment:start;
-                        min-height:32px;
-                        vertical-stretch:0;
-                        Field {
-                            width:220px;
-                            label-width:124px;
-                            title:root.english ? "Break repeats" : "Перерыв: повторов";
-                            control-width:110px;
-                            CompactSpinBox {
-                                accessible-label:parent.title;
-                                minimum:0;
-                                maximum:20;
-                                value<=>root.break-repeats;
-                                edited=>{
-                                    root.edited();
-                                }
-                            }
-                        }
-                        Field {
-                            width:220px;
-                            label-width:124px;
-                            title:root.english ? "Stretch repeats" : "Разминка: повторов";
-                            control-width:110px;
-                            CompactSpinBox {
-                                accessible-label:parent.title;
-                                minimum:0;
-                                maximum:20;
-                                value<=>root.exercise-repeats;
-                                edited=>{
-                                    root.edited();
-                                }
-                            }
+
+                    Field {
+                        title:root.english ? "Break repeats" : "Повторов перерыва";
+                        control-width:110px;
+                        CompactSpinBox {
+                            accessible-label:parent.title; minimum:0; maximum:20;
+                            value<=>root.break-repeats; edited=>{ root.edited(); }
                         }
                     }
                     Field {
-                        title:root.english ? "Meal repeats" : "Еда: повторов";
+                        title:root.english ? "Stretch repeats" : "Повторов разминки";
+                        control-width:110px;
+                        CompactSpinBox {
+                            accessible-label:parent.title; minimum:0; maximum:20;
+                            value<=>root.exercise-repeats; edited=>{ root.edited(); }
+                        }
+                    }
+                    Field {
+                        title:root.english ? "Meal repeats" : "Повторов еды";
                         control-width:110px;
                         CompactSpinBox {
                             accessible-label:parent.title;
@@ -2640,9 +2751,7 @@ export component AppWindow inherits Window {
                                     root.edited();
                                 }
                             }
-                        }
-                        Hint {
-                            text:root.english ? "Update backups and recoverable recordings use this limit. Model weights are not duplicated." : "Резервы обновлений и удалённые записи используют этот лимит. Веса моделей не дублируются.";
+                            hint:root.english ? "Update backups and recoverable recordings use this limit. Model weights are not duplicated." : "Резервы обновлений и удалённые записи используют этот лимит. Веса моделей не дублируются.";
                         }
                     }
                 }
@@ -2967,7 +3076,9 @@ export component AppWindow inherits Window {
                         }
                     }
                     AboutSlint {
-                        height:70px;
+                        min-height:110px;
+                        preferred-height:110px;
+                        vertical-stretch:0;
                         max-width:200px;
                     }
                 }
@@ -3104,7 +3215,7 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
-                        Toggle {
+                        ChoiceToggle {
                             text:root.english ? "Restore a full profile backup" : "Восстановить полный резерв профиля";
                             checked<=>root.restore-onboarding;
                         }
@@ -3156,49 +3267,49 @@ export component AppWindow inherits Window {
                         }
                         HorizontalLayout {
                             height: 36px;
-                            Toggle {
+                            ChoiceToggle {
                                 text: root.english ? "Mo" : "Пн";
                                 checked <=> root.monday;
                                 toggled => {
                                     root.edited();
                                 }
                             }
-                            Toggle {
+                            ChoiceToggle {
                                 text: root.english ? "Tu" : "Вт";
                                 checked <=> root.tuesday;
                                 toggled => {
                                     root.edited();
                                 }
                             }
-                            Toggle {
+                            ChoiceToggle {
                                 text: root.english ? "We" : "Ср";
                                 checked <=> root.wednesday;
                                 toggled => {
                                     root.edited();
                                 }
                             }
-                            Toggle {
+                            ChoiceToggle {
                                 text: root.english ? "Th" : "Чт";
                                 checked <=> root.thursday;
                                 toggled => {
                                     root.edited();
                                 }
                             }
-                            Toggle {
+                            ChoiceToggle {
                                 text: root.english ? "Fr" : "Пт";
                                 checked <=> root.friday;
                                 toggled => {
                                     root.edited();
                                 }
                             }
-                            Toggle {
+                            ChoiceToggle {
                                 text: root.english ? "Sa" : "Сб";
                                 checked <=> root.saturday;
                                 toggled => {
                                     root.edited();
                                 }
                             }
-                            Toggle {
+                            ChoiceToggle {
                                 text: root.english ? "Su" : "Вс";
                                 checked <=> root.sunday;
                                 toggled => {
@@ -3419,6 +3530,17 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+    changed delete-phrase-id=>{
+        if(root.delete-phrase-id!=""){delete-popup.show();}else{delete-popup.close();}
+    }
+    delete-popup := PopupWindow {
+        x:0px; y:0px; width:root.width; height:root.height; close-policy:no-auto-close;
+        RemovePhraseDialog {
+            width:root.width; height:root.height; english:root.english;
+            cancel=>{root.delete-phrase-id="";}
+            confirm=>{root.hide-phrase(root.delete-phrase-id);root.delete-phrase-id="";}
         }
     }
     unsaved-popup := PopupWindow {

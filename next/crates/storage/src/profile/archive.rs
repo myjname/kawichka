@@ -148,6 +148,8 @@ impl CaptureSource {
                     "legacy_preparation_states",
                     "preparation_state",
                     "audio_day",
+                    "support_day",
+                    "support_history",
                 ]
                 .contains(&k.as_str())
                     && !k.starts_with("delivery_journal:")

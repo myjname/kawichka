@@ -158,6 +158,59 @@ pub(super) fn tree_hash(root: &Path) -> String {
 }
 use sha2::Digest;
 #[test]
+fn encouragement_metadata_survives_full_profile_and_is_omitted_without_history() {
+    let dir = temp();
+    let (source, _) = source(dir.path());
+    let mut support = crate::support::load(&source, &source.load().unwrap(), "2026-10-28").unwrap();
+    crate::support::accept(
+        &source,
+        &mut support,
+        vec![
+            "A small step still counts today.".into(),
+            "There is room for a second try.".into(),
+        ],
+    )
+    .unwrap();
+    let archive = exported(&source, dir.path(), ExportOptions::default());
+    let inspected = inspected(&archive, dir.path());
+    assert_eq!(
+        inspected.snapshot.meta.get("support_history"),
+        source.meta("support_history").unwrap().as_ref()
+    );
+    let mut target = Sandbox::open(&dir.path().join("support-target")).unwrap();
+    let mut plan = RestorePlan::prepare(&target, inspected, &AtomicBool::new(false)).unwrap();
+    plan.prepare_files(
+        CaptureSource::new(&target).unwrap(),
+        "0.1.1",
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    plan.apply(&mut target, &AtomicBool::new(false)).unwrap();
+    assert_eq!(
+        source.meta("support_history").unwrap(),
+        target.meta("support_history").unwrap()
+    );
+    let archive = exported(
+        &source,
+        dir.path(),
+        ExportOptions {
+            library: false,
+            audio: false,
+        },
+    );
+    let checked = super::archive::inspect(
+        &archive,
+        &dir.path().join("support-no-history"),
+        2_000_000_000,
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    assert!(!checked.snapshot.meta.contains_key("support_day"));
+    assert!(!checked.snapshot.meta.contains_key("support_history"));
+}
+#[test]
 fn full_profile_restores_settings_history_presets_audio_and_claims_without_touching_source() {
     let dir = temp();
     let (source, character) = source(dir.path());

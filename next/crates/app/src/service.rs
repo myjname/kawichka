@@ -44,6 +44,7 @@ pub enum Command {
     GenerateBatchOnBattery,
     RegenerateSpeech(Option<String>),
     SelectPhrase(String, bool),
+    HidePhrase(String),
     PlayPhrase(String),
     PrepareModels(
         Box<kavychka_core::generation::Generation>,
@@ -309,6 +310,7 @@ impl Backend {
                     let mut effect = Effect::default();
                     let mut preferences_reply = None;
                     let mut prepare_models_reply = None;
+                    let mut character_import = false;
                     for event in audio_events_rx.try_iter() {
                         if let Err(error) = journal_audio(&mut store, event) {
                             if let Some(output) = &output {
@@ -362,6 +364,7 @@ impl Backend {
                         }
                     }
                     if let Some(command) = command {
+                        let auto_import_requested = matches!(&command,Command::Preset(action) if matches!(action.as_ref(),crate::presets_ui::Action::ImportAndApply(_)));
                         let library_command = matches!(
                             &command,
                             Command::PrepareDay
@@ -369,6 +372,7 @@ impl Backend {
                                 | Command::GenerateBatchOnBattery
                                 | Command::RegenerateSpeech(_)
                                 | Command::SelectPhrase(..)
+                                | Command::HidePhrase(_)
                                 | Command::PlayPhrase(_)
                                 | Command::PrepareModels(..)
                                 | Command::RepairEnvironment
@@ -478,6 +482,10 @@ impl Backend {
                                     }
                                 }
                                 Command::Preset(action) => {
+                                    let apply_import = matches!(
+                                        action.as_ref(),
+                                        crate::presets_ui::Action::ImportAndApply(_)
+                                    );
                                     let edited_description = match action.as_ref() {
                                         crate::presets_ui::Action::Save(id, preset)
                                             if *id == candidate.prefs.desktop.character_preset =>
@@ -487,6 +495,10 @@ impl Backend {
                                         _ => None,
                                     };
                                     library.preset_action(&store, &candidate.prefs, *action)?;
+                                    if apply_import {
+                                        library.apply_imported(&store, &mut candidate.prefs)?;
+                                        character_import = true;
+                                    }
                                     candidate.prefs.desktop.visual_revision =
                                         candidate.prefs.desktop.visual_revision.wrapping_add(1);
                                     if let Some(description) = edited_description {
@@ -621,6 +633,17 @@ impl Backend {
                                     library.repair_environment(&store, &candidate.prefs, clock)?
                                 }
                                 Command::RefreshLibrary => library.invalidate(),
+                                Command::HidePhrase(id) => {
+                                    if library.running() || library.waiting() {
+                                        return Err(
+                                            "Дождись текущей задачи / Wait for the current task"
+                                                .into(),
+                                        );
+                                    }
+                                    store.hide_phrase(&id).map_err(|e| e.to_string())?;
+                                    library.status="Фраза удалена из списка. Текст сохранён для защиты от повторов / Phrase removed; text retained for anti-repeat".into();
+                                    library.invalidate();
+                                }
                                 Command::LibraryPage(today, page) => library.browse(today, page),
                                 Command::ArchivePage(page) => library.browse_archive(page),
                                 Command::ConfirmArchived(key) => {
@@ -669,6 +692,9 @@ impl Backend {
                             Ok(())
                         })();
                         if let Err(error) = result {
+                            if auto_import_requested {
+                                library.import_aborted();
+                            }
                             if library_command {
                                 library.status = error;
                                 library.invalidate();
@@ -766,6 +792,12 @@ impl Backend {
                             store.save(&candidate.prefs)
                         };
                         if let Err(error) = result {
+                            if character_import {
+                                library.import_aborted();
+                                library.status = format!(
+                                    "Не удалось применить персонажа / Could not apply character: {error}"
+                                );
+                            }
                             if let Some(output) = &output {
                                 output.stop();
                             }
@@ -790,6 +822,10 @@ impl Backend {
                             format!("Автозапуск не настроен / Startup integration failed: {error}");
                     }
                     engine = candidate;
+                    if character_import {
+                        library.import_committed();
+                        library.settings_changed(clock);
+                    }
                     if let Some((desired, base, changed)) = prepare_models_reply {
                         // The settings transaction above must succeed before any
                         // cancellation, environment installation or download.
@@ -935,6 +971,7 @@ impl Backend {
                 }
                 drop(output);
                 for event in audio_events_rx.try_iter() {
+                    library.invalidate();
                     journal_audio(&mut store, event)?;
                 }
                 drop(monitor);

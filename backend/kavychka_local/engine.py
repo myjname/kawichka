@@ -16,6 +16,8 @@ SWEAR = re.compile(r"(?iu)(?:\b(?:бля\w*|хуй\w*|хуя\w*|хуе\w*|хуё
 TOPICS = {"break": r"перерыв|отдох|разомн|разм[яи]|вста|отойд|монитор|отлож|компьютер|работ|пройдись", "breakfast": r"завтрак|позавтрак", "lunch": r"обед|пообед", "dinner": r"ужин|поужин", "exercise": r"зарядк|разомн|разм[яи]|упражн|потян|мышц|плеч"}
 TOPICS_EN = {"break": r"break|rest|stand|stretch|screen|computer|step away|walk|pause", "breakfast": r"breakfast|morning meal", "lunch": r"lunch|midday meal", "dinner": r"dinner|evening meal|supper", "exercise": r"stretch|exercise|shoulder|muscle|move|stand"}
 SWEAR_EN = re.compile(r"\b(?:fuck\w*|shit\w*|bitch\w*|asshole\w*)\b", re.I)
+TOPICS["support"] = r"[А-Яа-яЁё]"
+TOPICS_EN["support"] = r"[A-Za-z]"
 
 class Engine:
     def __init__(self, app_root, store, components):

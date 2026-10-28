@@ -16,6 +16,19 @@ enum Event {
     Downloaded(std::result::Result<PathBuf, String>),
     Prepared(std::result::Result<(PathBuf, std::fs::File), String>),
 }
+fn checked_status(english: bool, version: Option<&str>) -> String {
+    let time = chrono::Local::now().format("%H:%M:%S").to_string();
+    match (english, version) {
+        (true, Some(v)) => format!("Checked at {time}: version {v} is available. Stable channel."),
+        (true, None) => {
+            format!("Checked at {time}: you have the latest stable version. Stable channel.")
+        }
+        (false, Some(v)) => format!("Проверено в {time}: доступна версия {v}. Стабильный канал."),
+        (false, None) => {
+            format!("Проверено в {time}: новых стабильных версий нет. Стабильный канал.")
+        }
+    }
+}
 fn automatic_check_enabled(snapshot: &str) -> bool {
     serde_json::from_str::<kavychka_core::preferences::Preferences>(snapshot)
         .is_ok_and(|p| p.desktop.setup_complete && p.desktop.automatic_updates)
@@ -70,7 +83,14 @@ impl State {
             ui.set_update_available(false);
             ui.set_update_version("".into());
             ui.set_update_notes("".into());
-            ui.set_update_status("Проверяю GitHub Releases… / Checking GitHub Releases…".into());
+            ui.set_update_status(
+                if ui.get_english() {
+                    "Checking for updates… Stable channel · GitHub"
+                } else {
+                    "Проверяем обновления… Стабильный канал · GitHub"
+                }
+                .into(),
+            );
         }
         let token = self.cancel.clone();
         let tx = self.sender.clone();
@@ -197,7 +217,7 @@ impl Controller {
                     match event {
                         Event::Checked(result) => match result {
                             Ok(Some(release)) => {
-                                ui.set_update_status(format!("Доступна версия / Version available: {}", release.version).into());
+                                ui.set_update_status(checked_status(ui.get_english(), Some(&release.version)).into());
                                 ui.set_update_version(release.version.as_str().into());
                                 ui.set_update_notes(release.notes.as_str().into());
                                 ui.set_update_available(true);
@@ -205,9 +225,9 @@ impl Controller {
                             }
                             Ok(None) => {
                                 ui.set_update_available(false);
-                                ui.set_update_status("Новых стабильных Rust-версий нет / No newer stable Rust release".into());
+                                ui.set_update_status(checked_status(ui.get_english(), None).into());
                             }
-                            Err(error) => ui.set_update_status(error.into()),
+                            Err(error) => ui.set_update_status(format!("{}: {error}", if ui.get_english() { "Update check failed; try again. Stable channel" } else { "Не удалось проверить обновления; повтори попытку. Стабильный канал" }).into()),
                         },
                         Event::Downloaded(result) => match result {
                             Ok(path) => {
