@@ -159,7 +159,10 @@ impl Controller {
             .filter(|p| {
                 install::current(p).is_ok_and(|c| {
                     c.is_some_and(|c| {
-                        c.data == std::path::Path::new(ui.get_storage_path().as_str())
+                        crate::installation::same_data_path(
+                            &c.data,
+                            std::path::Path::new(ui.get_storage_path().as_str()),
+                        )
                     })
                 })
             });

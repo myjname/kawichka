@@ -20,6 +20,14 @@ use std::{
 };
 type Events = Arc<Mutex<VecDeque<Box<dyn FnOnce() + Send>>>>;
 mod feedback;
+mod update_context;
+pub fn verify_update_context(
+    output: PathBuf,
+    data: PathBuf,
+    expected: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    update_context::run(output, data, expected)
+}
 pub fn verify_feedback(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     feedback::run(output)
 }

@@ -27,7 +27,12 @@ impl Controller {
             .map(PathBuf::from)
             .filter(|root| {
                 install::current(root).is_ok_and(|c| {
-                    c.is_some_and(|c| c.data == Path::new(ui.get_storage_path().as_str()))
+                    c.is_some_and(|c| {
+                        crate::installation::same_data_path(
+                            &c.data,
+                            Path::new(ui.get_storage_path().as_str()),
+                        )
+                    })
                 })
             });
         Self::for_root(ui, root)

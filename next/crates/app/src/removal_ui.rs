@@ -22,7 +22,10 @@ impl Controller {
             .filter(|r| {
                 kavychka_maintenance::install::current(r).is_ok_and(|v| {
                     v.is_some_and(|v| {
-                        v.data == std::path::Path::new(ui.get_storage_path().as_str())
+                        crate::installation::same_data_path(
+                            &v.data,
+                            std::path::Path::new(ui.get_storage_path().as_str()),
+                        )
                     })
                 })
             });

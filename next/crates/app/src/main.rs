@@ -7,6 +7,7 @@ mod display_path;
 mod frame_measurement;
 mod frame_probe;
 mod inference;
+mod installation;
 mod library_ui_smoke;
 mod migration_smoke;
 mod model_setup_smoke;
@@ -656,7 +657,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let current = kavychka_maintenance::install::current(&PathBuf::from(root))
             .map_err(|e| e.to_string())?
             .ok_or("Installed data pointer missing")?;
-        if current.data != args.data
+        if !installation::same_data_path(&current.data, &args.data)
             || !args.data.join("shell.sqlite3").is_file()
             || !std::fs::read(args.data.join("shell-sandbox.owner"))
                 .is_ok_and(|b| b == b"kavychka-shell-sandbox-v1\n")

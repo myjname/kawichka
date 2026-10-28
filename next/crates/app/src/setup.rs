@@ -54,6 +54,23 @@ pub fn intercept() -> Result<bool> {
     let removal_args: Vec<_> = std::env::args_os().skip(1).collect();
     if removal_args
         .first()
+        .is_some_and(|a| a == "--verify-update-context")
+    {
+        if removal_args.len() != 4 || !matches!(removal_args[3].to_str(), Some("yes" | "no")) {
+            return Err(
+                "expected --verify-update-context <new evidence> <fixture data> <yes|no>".into(),
+            );
+        }
+        crate::controls_smoke::verify_update_context(
+            PathBuf::from(&removal_args[1]),
+            PathBuf::from(&removal_args[2]),
+            removal_args[3] == "yes",
+        )
+        .map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    if removal_args
+        .first()
         .is_some_and(|a| a == "--verify-import-rollback")
     {
         if removal_args.len() != 2 {
