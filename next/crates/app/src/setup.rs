@@ -29,13 +29,13 @@ fn prepare_from(data: &Path, common: &Path, legacy: Option<&Path>) -> Result<()>
     if !engine.prefs.desktop.visual_preset.is_empty() {
         let id = &engine.prefs.desktop.visual_preset;
         let p = kavychka_storage::presets::read(data, id)?;
-        if let kavychka_storage::presets::Content::Visual { file, layout } = p.content {
+        if let Some((file, layout)) = p.content.visual() {
             crate::visuals::validate(
                 &kavychka_storage::presets::inside(
                     &kavychka_storage::presets::folder(data, id)?,
-                    &file,
+                    file,
                 )?,
-                &layout,
+                layout,
             )
             .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
         }
@@ -52,6 +52,38 @@ fn prepare_from(data: &Path, common: &Path, legacy: Option<&Path>) -> Result<()>
 }
 pub fn intercept() -> Result<bool> {
     let removal_args: Vec<_> = std::env::args_os().skip(1).collect();
+    if removal_args
+        .first()
+        .is_some_and(|a| a == "--verify-compact-controls")
+    {
+        if removal_args.len() != 2 {
+            return Err("expected --verify-compact-controls <new absolute evidence folder>".into());
+        }
+        crate::controls_smoke::run(PathBuf::from(&removal_args[1])).map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    if removal_args
+        .first()
+        .is_some_and(|a| a == "--verify-character-pack")
+    {
+        if removal_args.len() != 2 {
+            return Err("expected --verify-character-pack <new absolute evidence folder>".into());
+        }
+        crate::presets_ui::verify_complete_character(PathBuf::from(&removal_args[1]))
+            .map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    if removal_args
+        .first()
+        .is_some_and(|a| a == "--model-setup-cold-test")
+    {
+        if removal_args.len() != 2 {
+            return Err("expected --model-setup-cold-test <new absolute evidence folder>".into());
+        }
+        crate::model_setup_smoke::run(PathBuf::from(&removal_args[1]))
+            .map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
     if removal_args
         .first()
         .is_some_and(|a| a == "--review-regression")
@@ -407,11 +439,11 @@ fn show(exe: PathBuf) -> Result<()> {
         });
     let ui = SetupWindow::new()?;
     ui.set_version(manifest.version.as_str().into());
-    ui.set_program_path(root.to_string_lossy().as_ref().into());
-    ui.set_data_path(common.to_string_lossy().as_ref().into());
+    ui.set_program_path(crate::display_path::display(&root).into());
+    ui.set_data_path(crate::display_path::display(&common).into());
     ui.set_legacy_path(
         legacy
-            .map(|p| p.to_string_lossy().into_owned())
+            .map(|p| crate::display_path::display(&p))
             .unwrap_or_default()
             .into(),
     );

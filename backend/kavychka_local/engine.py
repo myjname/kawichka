@@ -49,7 +49,7 @@ class Engine:
             return
         self.unload()
         if not self.components.ready(key):
-            raise ValueError("Сначала установите компонент «" + key + "» на вкладке «Модели»")
+            raise ValueError("Файлы выбранной модели не готовы. Откройте «Голос и модели» и нажмите «Подготовить модели».")
         spec = self.components.manifest["models"][key]
         if spec.get("format") != "gguf":
             # Cosy's local YAML/PT files and HF configs are executable inputs,
@@ -60,7 +60,7 @@ class Engine:
             executable = self.components.llama_executable()
             device = self.components.llama_device()
             if not self.components.llama_ready(gpu=device == "cuda"):
-                raise ValueError("Сначала установите «llama.cpp · генератор текста» на вкладке «Модели»")
+                raise ValueError("Компоненты генерации текста не готовы. Откройте «Голос и модели» и нажмите «Подготовить модели».")
             progress("Загрузка " + spec["name"], 0, 0)
             self.model = Llama(executable, self.components.path(key) / spec["files"][0]["path"], self.store.root,
                                device, event, progress)
@@ -69,7 +69,7 @@ class Engine:
         if spec.get("format") == "cosyvoice3":
             from .cosy import Cosy
             if not self.components.cosy_ready():
-                raise ValueError("Сначала установите «Среда CosyVoice» на вкладке «Модели»")
+                raise ValueError("Компоненты озвучки CosyVoice не готовы. Откройте «Голос и модели» и нажмите «Подготовить модели».")
             progress("Загрузка CosyVoice 3 · управляемая подача", 0, 0)
             self.model = Cosy(self.app_root, self.store.root, self.components.path(key),
                               self.components.voice_device(), event, runtime=self.components.cosy_root() if hasattr(self.components, "cosy_root") else self.components.root)

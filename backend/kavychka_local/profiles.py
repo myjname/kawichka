@@ -82,7 +82,7 @@ class Profiles:
             item["references"] = [{"file": ref["file"], "transcript": ref.get("transcript", "")} for ref in refs]
         if kind == "visual":
             item.setdefault("layout", "auto")
-            if item["layout"] not in ("auto", "image", "codex"):
+            if item["layout"] not in ("auto", "image", "codex", "pixel", "smooth"):
                 raise ValueError("Invalid visual layout")
         return item
 
@@ -92,7 +92,17 @@ class Profiles:
             item = read_json(folder / "profile.json")
             refs = item["references"] if "references" in item else [{"file": item["file"], "transcript": item.get("transcript", "")}]
         else:
-            folder, item = self.get(ident, "voice")
+            # Complete characters keep voice/visual media in the same portable
+            # folder. Independently selected legacy voice presets still work.
+            if not isinstance(ident, str) or not ident.isalnum():
+                raise ValueError("Invalid preset")
+            folder = inside(self.root, ident)
+            item = read_json(folder / "preset.json")
+            if item.get("kind") == "character_pack":
+                item = self.clean(dict(version=item.get("version"), kind="voice",
+                                       name=item.get("name", ""), references=item.get("references", [])), "voice")
+            else:
+                folder, item = self.get(ident, "voice")
             refs = item["references"]
         result = []
         for ref in refs:

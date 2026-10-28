@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import queue
@@ -8,6 +9,32 @@ import time
 from pathlib import Path
 from .downloads import checkpoint
 from .llama import WindowsJob
+
+def prepare_precision(llm, cuda_available):
+    """CPU inputs are float32; pretrained Qwen's config may default to BF16."""
+    if not cuda_available:
+        llm.float()
+
+@contextlib.contextmanager
+def inference_errors():
+    """Surface a failed private LLM thread before publishing a partial wave."""
+    previous = threading.excepthook
+    failures = []
+    def capture(args):
+        failures.append(args.exc_value)
+        previous(args)  # Preserve the original traceback in the private log.
+    threading.excepthook = capture
+    try:
+        try:
+            yield
+        except BaseException:
+            if not failures:
+                raise
+        if failures:
+            error = failures[0]
+            raise RuntimeError("CosyVoice generation thread failed: " + type(error).__name__ + ": " + str(error)) from error
+    finally:
+        threading.excepthook = previous
 
 
 class Cosy:

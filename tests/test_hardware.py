@@ -18,6 +18,53 @@ from kavychka_local.store import Store
 
 
 class HardwareTests(unittest.TestCase):
+    def test_cosy_llm_thread_failure_preserves_original_cause_and_rejects_partial_audio(self):
+        from kavychka_local.cosy import inference_errors
+        def fail():raise ValueError('Original LLM failure')
+        for secondary in (False,True):
+            published=[];logged=[]
+            def hook(args):logged.append(args.exc_value)
+            with patch.object(threading,'excepthook',hook):
+                with self.assertRaisesRegex(RuntimeError,'ValueError: Original LLM failure') as caught:
+                    with inference_errors():
+                        thread=threading.Thread(target=fail);thread.start();thread.join()
+                        partial=b'An upstream generator can return a partial chunk'
+                        if secondary:raise RuntimeError('Secondary convolution failure')
+                    published.append(partial)
+                self.assertIs(threading.excepthook,hook)
+            self.assertEqual(published,[])
+            self.assertIsInstance(caught.exception.__cause__,ValueError)
+            self.assertEqual(len(logged),1)
+        previous=threading.excepthook
+        with inference_errors():pass
+        self.assertIs(threading.excepthook,previous)
+
+    def test_cpu_cosy_converts_pretrained_bfloat_weights_while_cuda_keeps_its_precision(self):
+        import importlib.util
+        if importlib.util.find_spec('torch') is None:
+            self.skipTest('Torch is required for the tiny checkpoint precision regression')
+        # Keep Torch out of the parent installer test process: production also
+        # installs into an interpreter that has not loaded its native modules.
+        script=r'''
+import json,sys,torch
+sys.path.insert(0,sys.argv[1])
+from kavychka_local.cosy import prepare_precision
+checkpoint={'weight':torch.tensor([[0.123456789]],dtype=torch.float32)}
+cpu=torch.nn.Linear(1,1,bias=False).bfloat16()
+prepare_precision(cpu,False);cpu.load_state_dict(checkpoint,strict=True)
+late=torch.nn.Linear(1,1,bias=False).bfloat16()
+late.load_state_dict(checkpoint,strict=True);late.float()
+cuda=torch.nn.Linear(1,1,bias=False).bfloat16();prepare_precision(cuda,True)
+print(json.dumps(dict(cpu_exact=torch.equal(cpu.weight,checkpoint['weight']),cpu_output=str(cpu(torch.ones(1,1)).dtype),late_exact=torch.equal(late.weight,checkpoint['weight']),cuda_dtype=str(cuda.weight.dtype))))
+'''
+        result=subprocess.run([sys.executable,'-B','-c',script,str(ROOT/'backend')],check=True,capture_output=True,text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+        values=json.loads(result.stdout)
+        self.assertTrue(values['cpu_exact'])
+        self.assertFalse(values['late_exact'])
+        self.assertEqual(values['cpu_output'],'torch.float32')
+        self.assertEqual(values['cuda_dtype'],'torch.bfloat16')
+
     @unittest.skipUnless(os.name == "nt", "Win32 native environment regression")
     def test_cpu_worker_hides_cuda_in_native_environment_before_importing_models(self):
         # Execute the real worker's setup, intercepting only the first heavy

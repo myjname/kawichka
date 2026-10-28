@@ -30,3 +30,4 @@ local-config.json
 *.wav
 assets/voice/cosy-references.json
 !assets/voice/default-en.wav
+.codex-remote-attachments/

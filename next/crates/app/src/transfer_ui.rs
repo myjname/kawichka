@@ -140,7 +140,7 @@ impl Controller {
                     Ok(estimate)=>{
                         ui.set_transfer_reviewed(estimate.target==Path::new(ui.get_transfer_target().as_str()));
                         let contents=if ui.get_english(){format!("{} files; {:.1} MB. Free space required: {:.1} MB.\nOwned models and runtimes included; external paths unchanged. Source retained. Applying closes reminders and opens a cancellable transfer window.",estimate.files,estimate.bytes as f64/1e6,estimate.peak_bytes as f64/1e6)}else{format!("{} файлов; {:.1} МБ. Нужно свободно: {:.1} МБ.\nСвои модели и среды перенесутся, внешние пути останутся. Исходник сохранится. При применении Кавычка закроется и откроет окно копирования с отменой.",estimate.files,estimate.bytes as f64/1e6,estimate.peak_bytes as f64/1e6)};
-                        ui.set_transfer_status(format!("{} → {}\n{contents}\n\n{}",estimate.source.display(),estimate.target.display(),breakdown(&estimate,ui.get_english())).into());
+                        ui.set_transfer_status(format!("{} → {}\n{contents}\n\n{}",crate::display_path::display(&estimate.source),crate::display_path::display(&estimate.target),breakdown(&estimate,ui.get_english())).into());
                         *e.borrow_mut()=Some(estimate);
                     }
                     Err(error)=>{ui.set_transfer_reviewed(false);ui.set_transfer_status(error.into());}
@@ -214,7 +214,7 @@ fn copy_window(root: PathBuf, local: PathBuf, target: PathBuf, qa: Option<PathBu
     crate::shell::select_backend(false).map_err(|e| e.to_string())?;
     let ui = TransferWindow::new()?;
     ui.set_dark(kavychka_platform::dark_preference().unwrap_or(false));
-    ui.set_destination(target.to_string_lossy().as_ref().into());
+    ui.set_destination(crate::display_path::display(&target).into());
     ui.set_status(
         "Копирую и проверяю. Исходная папка сохраняется. / Copying and verifying; source retained."
             .into(),
@@ -316,12 +316,12 @@ pub fn preview_test(root: PathBuf, target: PathBuf, evidence: PathBuf) -> Result
     drop(store);
     crate::shell::select_backend(false).map_err(|e| e.to_string())?;
     let ui = AppWindow::new()?;
-    ui.set_storage_path(current.data.to_string_lossy().as_ref().into());
+    ui.set_storage_path(crate::display_path::display(&current.data).into());
     crate::apply(&ui, &prefs);
     ui.set_ready(true);
     ui.set_page(6);
     ui.set_profile_operation_index(2);
-    ui.set_transfer_target(target.to_string_lossy().as_ref().into());
+    ui.set_transfer_target(crate::display_path::display(&target).into());
     let controller = Controller::for_root(&ui, Some(root));
     let timer = slint::Timer::default();
     let weak = ui.as_weak();

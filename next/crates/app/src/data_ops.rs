@@ -87,6 +87,13 @@ impl Manager {
         self.view.status_en = en.into();
     }
     pub fn fail(&mut self, error: String) {
+        if error.contains("character preset archive; import in Character after setup") {
+            self.status(
+                "Это набор персонажа, а не резерв всего профиля. Заверши первый запуск и открой «Персонаж» → «Импорт персонажа…». Текущие данные не изменены.",
+                "This is a character pack, not a full profile backup. Finish setup, then open Character → Import character. Current data is unchanged.",
+            );
+            return;
+        }
         self.status(
             format!("Операция с данными не выполнена: {error}"),
             format!("Data operation failed: {error}"),
@@ -350,7 +357,7 @@ impl Manager {
             self.view.busy = false;
             match event {
                 Event::DiagnosticExported(Ok(path)) => {
-                    self.view.output = path.display().to_string();
+                    self.view.output = crate::display_path::display(&path);
                     self.status(
                         "Диагностика сохранена локально; ничего не отправлено",
                         "Diagnostics saved locally; nothing sent",
@@ -380,10 +387,16 @@ impl Manager {
                 }
                 Event::Exported(Ok(report)) => {
                     self.estimate = None;
-                    self.view.output = report.path.display().to_string();
+                    self.view.output = crate::display_path::display(&report.path);
                     self.status(
-                        format!("Архив проверен и сохранён: {}", report.path.display()),
-                        format!("Archive verified and saved: {}", report.path.display()),
+                        format!(
+                            "Архив проверен и сохранён: {}",
+                            crate::display_path::display(&report.path)
+                        ),
+                        format!(
+                            "Archive verified and saved: {}",
+                            crate::display_path::display(&report.path)
+                        ),
                     );
                 }
                 Event::Inspected(Ok(plan)) => {
@@ -498,7 +511,7 @@ impl Manager {
                 );
                 self.view.output = report
                     .backup
-                    .map(|p| p.display().to_string())
+                    .map(|p| crate::display_path::display(&p))
                     .unwrap_or_default();
             }
             Err(error) => self.fail(error),
@@ -517,10 +530,10 @@ impl Manager {
             ui.set_profile_running(view.busy);
             ui.set_profile_review(view.review.into());
             ui.set_profile_can_apply(view.can_apply);
-            ui.set_profile_status_ru(view.status_ru.into());
-            ui.set_profile_status_en(view.status_en.into());
-            ui.set_profile_summary_ru(view.summary_ru.into());
-            ui.set_profile_summary_en(view.summary_en.into());
+            ui.set_profile_status_ru(crate::display_path::text(&view.status_ru).into());
+            ui.set_profile_status_en(crate::display_path::text(&view.status_en).into());
+            ui.set_profile_summary_ru(crate::display_path::text(&view.summary_ru).into());
+            ui.set_profile_summary_en(crate::display_path::text(&view.summary_en).into());
             ui.set_profile_output(view.output.into());
         });
     }
@@ -575,9 +588,9 @@ pub fn wire(ui: &AppWindow, backend: &Backend) {
         ) {
             Ok(Some(path)) => {
                 if save {
-                    ui.set_profile_export_path(path.to_string_lossy().as_ref().into());
+                    ui.set_profile_export_path(crate::display_path::display(&path).into());
                 } else {
-                    ui.set_profile_import_path(path.to_string_lossy().as_ref().into());
+                    ui.set_profile_import_path(crate::display_path::display(&path).into());
                     if ui.get_onboarding() {
                         ui.invoke_profile_action(2);
                     }

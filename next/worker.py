@@ -1,6 +1,7 @@
-"""v1 stateless inference protocol. Never opens SQLite or installs components.
+"""v1 stateless inference protocol. Never opens SQLite.
 
-The parent owns the process tree, settings, queue, acceptance and file lifetime.
+Only the explicit install operation writes managed components. The parent owns
+the process tree, settings, queue, acceptance and file lifetime.
 Stdout is JSON lines only; diagnostic/model output goes to stderr.
 """
 import contextlib
@@ -9,6 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sys
 import threading
@@ -60,9 +62,139 @@ def verify_managed_tree(root):
         info = path.lstat()
         if path.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400:
             raise ValueError("Managed environment contains a link; external target retained")
+        # Bootstrap keeps an unverified previous environment beside the new
+        # interpreter. It is evidence only: never traverse or alter its contents.
+        if depth == 1 and re.fullmatch(r"runtime-unverified-[0-9]+-[0-9]+", path.name):
+            if not path.is_dir():
+                raise ValueError("Retained environment must be an ordinary directory")
+            return
         if path.is_dir():
             for item in path.iterdir(): visit(item, depth + 1)
     visit(root, 0)
+
+INSTALL_PHASES = {
+    "install_check": "Проверка выбранных моделей / Checking selected models",
+    "install_runtime": "Установка компонентов озвучки / Installing speech components",
+    "install_text_engine": "Установка компонентов текста / Installing text components",
+    "install_voice_engine": "Подготовка CosyVoice / Setting up CosyVoice",
+    "install_models": "Загрузка выбранных моделей / Downloading selected models",
+    "install_verify": "Проверка готовности моделей / Checking model readiness",
+    "install_ready": "Модели готовы к работе / Models are ready",
+}
+
+def install_selected(request, store, catalog, managed, components, root):
+    """One dependency plan for first install, resume, and explicit repair."""
+    from kavychka_local.downloads import Components, checkpoint
+    import shutil
+    verify_managed_tree(managed)
+    os.environ.update(PIP_CONFIG_FILE=os.devnull, PIP_INDEX_URL="https://pypi.org/simple",
+                      PIP_EXTRA_INDEX_URL="", PIP_NO_INPUT="1", PIP_DISABLE_PIP_VERSION_CHECK="1")
+    ids = request["ids"]
+    if (not isinstance(ids, list) or not 1 <= len(ids) <= 3
+            or any(not isinstance(i, str) or i not in catalog.manifest["models"] for i in ids)
+            or len(set(ids)) != len(ids)):
+        raise ValueError("Выберите модель текста и голоса / Select text and voice models")
+    settings = dict(store.values, model_paths={})
+    class InstallSettings:
+        def settings(self): return settings
+    repairing = request.get("repair_environment") is True
+    class ManagedInstaller(Components):
+        def install_llama(self, *args, **kwargs):
+            if repairing: (self.root / "llama/verified.json").unlink(missing_ok=True)
+            return super().install_llama(*args, **kwargs)
+        def install_cosy(self, *args, **kwargs):
+            if repairing: (self.root / "cosy/verified.json").unlink(missing_ok=True)
+            return super().install_cosy(*args, **kwargs)
+        def run_install(self, command, *args, **kwargs):
+            if repairing and "pip" in command and "install" in command and "--force-reinstall" not in command:
+                command = list(command) + ["--force-reinstall"]
+            return super().run_install(command, *args, **kwargs)
+    installer = ManagedInstaller(APP, managed, InstallSettings())
+    event = TaskCancellation(root)
+    phase = "install_check"
+    item = ""
+    def begin(value, ident=None):
+        nonlocal phase, item
+        checkpoint(event)
+        phase = value
+        item = catalog.manifest["models"][ident].get("name", ident) if ident else ""
+        emit("stage", stage=value, message=INSTALL_PHASES[value])
+    def progress(message, done=0, total=0):
+        # pip/model internals stay in the log/detail. The primary label always
+        # says which operation is running; unknown-length installs are explicit.
+        determinate = total > 0
+        label = INSTALL_PHASES[phase]
+        if item:
+            label += " · " + item
+        if determinate:
+            label += " · " + message
+        emit("progress", phase=phase, message=label, detail=message,
+             done=done, total=total, percent=min(100, int(done * 100 / total)) if determinate else None)
+    def verified_model(ident):
+        nonlocal item
+        item = catalog.manifest["models"][ident].get("name", ident)
+        folder = catalog.path(ident)
+        files = catalog.manifest["models"][ident]["files"]
+        for spec in files:
+            checkpoint(event)
+            path = folder / spec["path"]
+            if not path.is_file() or path.stat().st_size != spec["size"]:
+                return False
+            progress("SHA-256: " + ident + " / " + spec["path"])
+            value = hashlib.sha256()
+            with path.open("rb") as file:
+                for block in iter(lambda: file.read(4 * 1024 * 1024), b""):
+                    checkpoint(event)
+                    value.update(block)
+            if value.hexdigest() != spec["sha256"]:
+                return False
+        return True
+    begin("install_check")
+    missing = [i for i in ids if not verified_model(i)]
+    formats = {catalog.manifest["models"][i].get("format") for i in ids}
+    gpu = installer.use_gpu("runtime")
+    managed_python = normal_path(sys.executable).resolve().is_relative_to((managed / "runtime").resolve())
+    active = installer if managed_python else Components(APP, components, store)
+    full_runtime = active.runtime_ready(gpu=gpu)
+    required = sum(f["size"] for i in missing for f in catalog.manifest["models"][i]["files"])
+    if formats - {"gguf"} and (repairing or not full_runtime):
+        required += sum(f["size"] for f in installer.runtime_wheels(gpu)) * 3 + 2_000_000_000
+    if "gguf" in formats and (repairing or not catalog.llama_ready(gpu=installer.use_gpu("llama-runtime"))):
+        required += sum(f["size"] for f in catalog.manifest["llama_runtime" if installer.use_gpu("llama-runtime") else "llama_cpu_runtime"]["files"]) * 3
+    if "cosyvoice3" in formats and (repairing or not catalog.cosy_ready()):
+        required += 1_400_000_000
+    if shutil.disk_usage(managed).free < required + 1_000_000_000:
+        raise ValueError("Недостаточно свободного места для моделей и установки. Освободите место в папке данных и повторите подготовку. / Not enough space for models and installation")
+    # Dependency ordering is independent of which model appears first in ids.
+    if formats - {"gguf"} and (repairing or not full_runtime):
+        if not managed_python:
+            raise ValueError("Для подготовки компонентов требуется управляемая среда Python. Повторите «Подготовить модели». / Managed Python is required; retry Set up models")
+        begin("install_runtime")
+        installer.install("runtime", event, progress)
+    if "gguf" in formats and (repairing or not catalog.llama_ready(gpu=installer.use_gpu("llama-runtime"))):
+        begin("install_text_engine")
+        installer.install("llama-runtime", event, progress)
+    if "cosyvoice3" in formats and (repairing or not catalog.cosy_ready()):
+        if not managed_python:
+            raise ValueError("Для подготовки CosyVoice требуется управляемая среда Python. Повторите «Подготовить модели». / Managed Python is required; retry Set up models")
+        begin("install_voice_engine")
+        installer.install("cosy-runtime", event, progress)
+    for ident in missing:
+        begin("install_models", ident)
+        progress(ident)
+        installer.install(ident, event, progress)
+    begin("install_verify")
+    unavailable = []
+    for ident in ids:
+        kind = catalog.manifest["models"][ident].get("format")
+        ready = catalog.llama_ready(gpu=installer.use_gpu("llama-runtime")) if kind == "gguf" else (
+            catalog.runtime_ready(gpu=gpu) and (kind != "cosyvoice3" or catalog.cosy_ready()))
+        if not verified_model(ident) or not ready:
+            unavailable.append(ident)
+    if unavailable:
+        raise ValueError("Подготовка не завершена: " + ", ".join(unavailable) + ". Подробности в журнале установки. / Models are not ready; see installation log")
+    begin("install_ready")
+    emit("result", installed=ids, downloaded_models=missing, phase="install_ready", ready=True)
 
 class RecentDB:
     def __init__(self, store): self.store = store
@@ -141,111 +273,23 @@ def run(request):
             return managed / "llama/llama-server.exe" if (managed / "llama/verified.json").is_file() else super().llama_executable()
         def llama_ready(self, gpu=None):
             return Components(APP, managed, store).llama_ready(gpu) or super().llama_ready(gpu)
+        def runtime_ready(self, gpu=None):
+            return Components(APP, managed, store).runtime_ready(gpu) or super().runtime_ready(gpu)
         def cosy_ready(self):
             return Components(APP, managed, store).cosy_ready() or super().cosy_ready()
         def cosy_root(self):
             return managed if Components(APP, managed, store).cosy_ready() else self.root
     catalog = Hybrid(APP, components, store)
     if operation == "install":
-        verify_managed_tree(managed)
-        os.environ.update(PIP_CONFIG_FILE=os.devnull, PIP_INDEX_URL="https://pypi.org/simple",
-                          PIP_EXTRA_INDEX_URL="", PIP_NO_INPUT="1", PIP_DISABLE_PIP_VERSION_CHECK="1")
-        ids = request["ids"]
-        if not isinstance(ids, list) or not 1 <= len(ids) <= 2 or any(i not in catalog.manifest["models"] for i in ids):
-            raise ValueError("Select one text and one voice model")
-        # Installation writes only the new managed component root, never the legacy source.
-        settings = dict(store.values, model_paths={})
-        class InstallSettings:
-            def settings(self): return settings
-        repairing = request.get("repair_environment") is True
-        class ManagedInstaller(Components):
-            def install_llama(self, *args, **kwargs):
-                if repairing: (self.root / "llama/verified.json").unlink(missing_ok=True)
-                return super().install_llama(*args, **kwargs)
-            def install_cosy(self, *args, **kwargs):
-                if repairing: (self.root / "cosy/verified.json").unlink(missing_ok=True)
-                return super().install_cosy(*args, **kwargs)
-            def run_install(self, command, *args, **kwargs):
-                if repairing and "pip" in command and "install" in command and "--force-reinstall" not in command:
-                    command = list(command) + ["--force-reinstall"]
-                return super().run_install(command, *args, **kwargs)
-        installer = ManagedInstaller(APP, managed, InstallSettings())
-        event = TaskCancellation(root)
-        def progress(message, done=0, total=0): emit("progress", message=message, done=done, total=total)
-        import shutil
-        def verified_model(ident):
-            from kavychka_local.downloads import checkpoint
-            folder = catalog.path(ident)
-            for spec in catalog.manifest["models"][ident]["files"]:
-                checkpoint(event)
-                path = folder / spec["path"]
-                if not path.is_file() or path.stat().st_size != spec["size"]:
-                    return False
-                progress("Проверка SHA-256 / Verifying: " + ident)
-                value = hashlib.sha256()
-                with path.open("rb") as file:
-                    for block in iter(lambda: file.read(1024 * 1024), b""):
-                        checkpoint(event)
-                        value.update(block)
-                if value.hexdigest() != spec["sha256"]:
-                    return False
-            return True
-        missing = [i for i in ids if not verified_model(i)]
-        required = sum(f["size"] for i in missing for f in catalog.manifest["models"][i]["files"])
-        formats = {catalog.manifest["models"][i].get("format") for i in ids}
-        gpu = installer.use_gpu("runtime")
-        managed_python = normal_path(sys.executable).resolve().is_relative_to((managed / "runtime").resolve())
-        runtime_marker = (managed if managed_python else components) / "runtime-ok.json"
-        try:
-            marker = json.loads(runtime_marker.read_text(encoding="utf-8"))
-            profile = catalog.manifest.get("runtime_profile")
-            full_runtime = isinstance(marker, dict) and (not profile or marker.get("profile") == profile) and (not gpu or marker.get("gpu") is True or "+cu" in marker.get("torch", ""))
-        except (OSError, ValueError, TypeError):
-            full_runtime = False
-        if formats - {"gguf"} and (repairing or not full_runtime):
-            # Downloaded wheels, unpacked packages and temporary installation
-            # space coexist. This is a conservative peak, not just final size.
-            required += sum(f["size"] for f in installer.runtime_wheels(gpu)) * 3 + 2_000_000_000
-        if "gguf" in formats and (repairing or not catalog.llama_ready(gpu=installer.use_gpu("llama-runtime"))):
-            required += sum(f["size"] for f in catalog.manifest["llama_runtime" if installer.use_gpu("llama-runtime") else "llama_cpu_runtime"]["files"]) * 3
-        if "cosyvoice3" in formats and (repairing or not catalog.cosy_ready()):
-            required += 1_400_000_000
-        if shutil.disk_usage(managed).free < required + 1_000_000_000:
-            raise ValueError("Insufficient disk space for selected models and temporary files")
-        if repairing:
-            if "gguf" in formats:
-                installer.install("llama-runtime", event, progress)
-            if formats - {"gguf"}:
-                if not managed_python:
-                    raise ValueError("Repair must run in managed Python; original environment retained")
-                installer.install("runtime", event, progress)
-                full_runtime = True
-            if "cosyvoice3" in formats:
-                installer.install("cosy-runtime", event, progress)
-        for ident in ids:
-            spec = catalog.manifest["models"][ident]
-            if spec.get("format") == "gguf" and not catalog.llama_ready(gpu=installer.use_gpu("llama-runtime")):
-                installer.install("llama-runtime", event, progress)
-            elif spec.get("format") != "gguf":
-                managed_python = normal_path(sys.executable).resolve().is_relative_to((managed / "runtime").resolve())
-                runtime_marker = (managed if managed_python else components) / "runtime-ok.json"
-                if not full_runtime:
-                    if not managed_python:
-                        raise ValueError("Install a new voice runtime only inside the managed Python environment")
-                    installer.install("runtime", event, progress)
-                    full_runtime = True
-                if spec.get("format") == "cosyvoice3" and not catalog.cosy_ready():
-                    if not normal_path(sys.executable).resolve().is_relative_to((managed / "runtime").resolve()):
-                        raise ValueError("Install CosyVoice only inside the managed Python environment")
-                    installer.install("cosy-runtime", event, progress)
-            if ident in missing: installer.install(ident, event, progress)
-        emit("result", installed=ids, downloaded_models=missing)
+        install_selected(request, store, catalog, managed, components, root)
         return
     if operation == "probe":
         result = []
         for ident, spec in catalog.manifest["models"].items():
             required = "llama" if spec.get("format") == "gguf" else "cosy" if spec.get("format") == "cosyvoice3" else "qwen"
-            environment = catalog.llama_ready(gpu=False) if required == "llama" else catalog.cosy_ready() if required == "cosy" else (components / "runtime-ok.json").is_file()
+            gpu = catalog.use_gpu("llama-runtime" if required == "llama" else "runtime")
+            environment = catalog.llama_ready(gpu=gpu) if required == "llama" else (
+                catalog.runtime_ready(gpu=gpu) and (required != "cosy" or catalog.cosy_ready()))
             result.append(dict(id=ident, name=spec.get("name", ident), installed=catalog.ready(ident),
                                environment=environment, bytes=sum(f["size"] for f in spec["files"]),
                                path=str(catalog.path(ident)), kind="text" if ident.startswith("text-") else "voice"))
@@ -352,5 +396,12 @@ if __name__ == "__main__":
             print(json.dumps(dict(version=1, task=TASK, kind=kind, **data), ensure_ascii=False), file=protocol, flush=True)
         with contextlib.redirect_stdout(sys.stderr): run(request)
     except Exception as error:
-        emit("error", message=str(error))
+        details = dict(message=str(error))
+        if isinstance(locals().get("request"), dict) and request.get("operation") == "install":
+            # stdout protocol is transient. Retain the actual installation
+            # cause in stderr so the parent's persistent install log has it.
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            details.update(phase="install_error", action="retry_setup", detail=str(error))
+        emit("error", **details)
         sys.exit(1)

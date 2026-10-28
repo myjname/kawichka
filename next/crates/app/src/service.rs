@@ -45,7 +45,10 @@ pub enum Command {
     RegenerateSpeech(Option<String>),
     SelectPhrase(String, bool),
     PlayPhrase(String),
-    InstallModels,
+    PrepareModels(
+        Box<kavychka_core::generation::Generation>,
+        Box<kavychka_core::generation::Generation>,
+    ),
     RepairEnvironment,
     RefreshLibrary,
     LibraryPage(bool, usize),
@@ -151,7 +154,7 @@ impl Backend {
                     chrono::Utc::now().format("%Y%m%d-%H%M%S")
                 ));
                 let _ = ui.upgrade_in_event_loop(move |ui| {
-                    ui.set_profile_export_path(default_export.to_string_lossy().as_ref().into())
+                    ui.set_profile_export_path(crate::display_path::display(&default_export).into())
                 });
                 let prefs = store.load().map_err(|e| e.to_string())?;
                 let runtime = !matches!(mode, Mode::Settings);
@@ -305,6 +308,7 @@ impl Backend {
                     let runtime = runtime && (controlled || candidate.prefs.desktop.setup_complete);
                     let mut effect = Effect::default();
                     let mut preferences_reply = None;
+                    let mut prepare_models_reply = None;
                     for event in audio_events_rx.try_iter() {
                         if let Err(error) = journal_audio(&mut store, event) {
                             if let Some(output) = &output {
@@ -366,7 +370,7 @@ impl Backend {
                                 | Command::RegenerateSpeech(_)
                                 | Command::SelectPhrase(..)
                                 | Command::PlayPhrase(_)
-                                | Command::InstallModels
+                                | Command::PrepareModels(..)
                                 | Command::RepairEnvironment
                                 | Command::ExportLibrary
                                 | Command::ClearRecordings
@@ -474,22 +478,20 @@ impl Backend {
                                     }
                                 }
                                 Command::Preset(action) => {
+                                    let edited_description = match action.as_ref() {
+                                        crate::presets_ui::Action::Save(id, preset)
+                                            if *id == candidate.prefs.desktop.character_preset =>
+                                        {
+                                            preset.content.description().map(str::to_owned)
+                                        }
+                                        _ => None,
+                                    };
                                     library.preset_action(&store, &candidate.prefs, *action)?;
                                     candidate.prefs.desktop.visual_revision =
                                         candidate.prefs.desktop.visual_revision.wrapping_add(1);
-                                    if !candidate.prefs.desktop.character_preset.is_empty() {
-                                        let p = kavychka_storage::presets::read(
-                                            &store.root,
-                                            &candidate.prefs.desktop.character_preset,
-                                        )
-                                        .map_err(|e| e.to_string())?;
-                                        if let kavychka_storage::presets::Content::Character {
-                                            description,
-                                        } = p.content
-                                        {
-                                            candidate.prefs.generation.character_description =
-                                                description;
-                                        }
+                                    if let Some(description) = edited_description {
+                                        candidate.prefs.generation.character_description =
+                                            description;
                                     }
                                 }
                                 Command::Confirm(key) => {
@@ -603,8 +605,17 @@ impl Backend {
                                         output.stop();
                                     }
                                 }
-                                Command::InstallModels => {
-                                    library.install(&store, &candidate.prefs, clock)?
+                                Command::PrepareModels(desired, base) => {
+                                    library.can_install()?;
+                                    let prefs =
+                                        merge_model_setup(&candidate.prefs, &base, &desired)?;
+                                    let changed = serde_json::to_value(&prefs.generation)
+                                        .map_err(|e| e.to_string())?
+                                        != serde_json::to_value(&candidate.prefs.generation)
+                                            .map_err(|e| e.to_string())?;
+                                    candidate.preferences(prefs, clock)?;
+                                    prepare_models_reply = Some((desired, base, changed));
+                                    library.invalidate();
                                 }
                                 Command::RepairEnvironment => {
                                     library.repair_environment(&store, &candidate.prefs, clock)?
@@ -779,6 +790,20 @@ impl Backend {
                             format!("Автозапуск не настроен / Startup integration failed: {error}");
                     }
                     engine = candidate;
+                    if let Some((desired, base, changed)) = prepare_models_reply {
+                        // The settings transaction above must succeed before any
+                        // cancellation, environment installation or download.
+                        if changed {
+                            library.settings_changed(clock);
+                        }
+                        if let Err(error) = library.install(&store, &engine.prefs, clock) {
+                            library.status = error;
+                            library.invalidate();
+                        }
+                        let _ = ui.upgrade_in_event_loop(move |ui| {
+                            crate::models_ui::setup_saved(&ui, &desired, &base);
+                        });
+                    }
                     if effect.announce.is_some() {
                         presentation_requests = presentation_requests.saturating_add(1);
                     }
@@ -940,6 +965,43 @@ impl Drop for Backend {
             let _ = join.join();
         }
     }
+}
+fn merge_model_setup(
+    current: &Preferences,
+    base: &kavychka_core::generation::Generation,
+    desired: &kavychka_core::generation::Generation,
+) -> Result<Preferences, String> {
+    let current_value = serde_json::to_value(&current.generation).map_err(|e| e.to_string())?;
+    let base_value = serde_json::to_value(base).map_err(|e| e.to_string())?;
+    let desired_value = serde_json::to_value(desired).map_err(|e| e.to_string())?;
+    let mut filtered = base_value.clone();
+    for key in [
+        "device",
+        "text_model",
+        "runtime_text_model",
+        "tts_model",
+        "voice_profile",
+        "text_enabled",
+        "runtime",
+        "auto_daily",
+        "daily_auto_keep",
+        "ac_only",
+        "model_paths",
+        "runtime_wait_seconds",
+    ] {
+        if base_value[key] != desired_value[key]
+            && current_value[key] != base_value[key]
+            && current_value[key] != desired_value[key]
+        {
+            return Err("Выбор моделей уже изменился. Обнови страницу и выбери снова / Model choices changed; reload and choose again".into());
+        }
+        filtered[key] = desired_value[key].clone();
+    }
+    let mut baseline = current.clone();
+    baseline.generation = base.clone();
+    let mut wanted = baseline.clone();
+    wanted.generation = serde_json::from_value(filtered).map_err(|e| e.to_string())?;
+    kavychka_core::preferences::merge(current, &baseline, &wanted)
 }
 fn journal_audio(store: &mut Sandbox, event: audio::PlaybackEvent) -> Result<(), String> {
     if let Some(notice) = event.notice {
@@ -1108,6 +1170,29 @@ pub fn category(category: kavychka_core::reminders::Category, en: bool) -> &'sta
 #[cfg(test)]
 mod p4_policy_tests {
     use super::*;
+    #[test]
+    fn one_click_model_setup_preserves_unrelated_settings_and_rejects_stale_choices() {
+        let base = Preferences::default();
+        let mut current = base.clone();
+        current.user_name = "Concurrent user name".into();
+        current.generation.character_description = "Concurrent character".into();
+        let mut desired = base.generation.clone();
+        desired.text_enabled = true;
+        desired.tts_model = "tts-cosyvoice3".into();
+        desired.voice_profile = "voicefixture".into();
+        desired.character_description = "Unrelated UI draft".into();
+        let merged = merge_model_setup(&current, &base.generation, &desired).unwrap();
+        assert!(merged.generation.text_enabled);
+        assert_eq!(merged.generation.tts_model, "tts-cosyvoice3");
+        assert_eq!(merged.generation.voice_profile, "voicefixture");
+        assert_eq!(merged.user_name, "Concurrent user name");
+        assert_eq!(
+            merged.generation.character_description,
+            "Concurrent character"
+        );
+        current.generation.tts_model = "tts-1.7b".into();
+        assert!(merge_model_setup(&current, &base.generation, &desired).is_err());
+    }
     #[test]
     fn a_manual_battery_exception_never_bypasses_pause_or_fullscreen_or_changes_the_preference() {
         let utc = "2026-10-23T12:00:00Z"

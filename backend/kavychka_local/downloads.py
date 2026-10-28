@@ -125,6 +125,29 @@ class Components:
     def runtime_wheels(self, gpu):
         return self.manifest["wheels"][self.manifest.get("cuda_wheel_set", "cu128") if gpu else "cpu"]
 
+    def runtime_ready(self, gpu=None):
+        """Readiness of a qualified on-disk environment, not this process' imports."""
+        try:
+            marker = json.loads((self.root / "runtime-ok.json").read_text(encoding="utf-8"))
+            if not isinstance(marker, dict) or ("gpu" in marker and not isinstance(marker["gpu"], bool)):
+                return False
+            profile = self.manifest.get("runtime_profile")
+            if profile and marker.get("profile") != profile:
+                return False
+            if gpu is True and not (marker.get("gpu") is True or "+cu" in marker.get("torch", "")):
+                return False
+            versions = marker.get("versions")
+            if versions is not None and (not isinstance(versions, dict) or any(
+                    str(versions.get(name, "")).split("+")[0] != expected
+                    for name, expected in self.manifest.get("runtime_versions", {}).items())):
+                return False
+            packages = self.root / "runtime/Lib/site-packages"
+            return ((self.root / "runtime/python.exe").is_file() and all(
+                (packages / name).is_file() for name in ("torch/__init__.py", "qwen_tts/__init__.py",
+                    "transformers/__init__.py", "soundfile.py", "tzdata/__init__.py")))
+        except (OSError, ValueError, TypeError):
+            return False
+
     def runtime_python(self):
         self.check_package_path(self.root / "runtime")
         python = Path(os.path.realpath(sys.executable))

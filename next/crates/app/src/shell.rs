@@ -25,7 +25,20 @@ struct DragOrigin {
     cursor: (i32, i32),
     window: (i32, i32),
 }
-type AlphaKey = (usize, u32, u32, bool, bool);
+/// Present runtime text with the same rules in the live shell and software review.
+/// This helper does not create native overlays, emit audio or change preferences.
+pub(crate) fn apply_runtime_status(ui: &AppWindow, view: &RuntimeView) {
+    ui.set_background_running(true);
+    ui.set_on_battery(view.on_battery);
+    ui.set_runtime_status(view.status.as_str().into());
+    ui.set_next_reminder(view.next.as_str().into());
+    ui.set_pause_caption(view.countdown.as_str().into());
+    ui.set_breakfast_done(view.breakfast_done);
+    ui.set_pending_text(view.notice.as_ref().map_or("", |n| n.text.as_str()).into());
+    ui.set_pending_key(view.notice.as_ref().map_or("", |n| n.key.as_str()).into());
+}
+
+type AlphaKey = (usize, u32, u32, u32, bool, bool);
 type ClipCache = Rc<Cell<Option<(isize, u32, u32, u32, bool)>>>;
 pub struct Shell {
     pub pet: PetWindow,
@@ -45,7 +58,7 @@ pub struct Shell {
     visual_timer: slint::Timer,
     visual_serial: std::sync::Arc<std::sync::atomic::AtomicU64>,
     visual_started: std::time::Instant,
-    visual_last: Cell<Option<usize>>,
+    visual_last: Cell<Option<(usize, u32, u32, u32)>>,
     happy_until: Cell<Option<std::time::Instant>>,
     alpha_key: Cell<Option<AlphaKey>>,
     pet_clip: ClipCache,
@@ -303,15 +316,24 @@ impl Shell {
             view.notice.as_ref().is_some_and(|n| n.followup > 0),
             happy,
         );
-        if self.visual_last.replace(Some(index)) != Some(index) {
-            self.pet.set_custom_image(frames.image(index));
-        }
         self.pet.set_custom_visual(true);
         let size = self.pet.window().size();
+        let scale = self.pet.window().scale_factor();
+        let placement = frames.placement(index, size.width, size.height, scale);
+        let image_key = (index, size.width, size.height, scale.to_bits());
+        if self.visual_last.replace(Some(image_key)) != Some(image_key) {
+            self.pet.set_custom_image(frames.image_at(index, placement));
+        }
+        self.pet.set_custom_pixelated(frames.pixelated);
+        self.pet.set_custom_left(placement.left as f32 / scale);
+        self.pet.set_custom_top(placement.top as f32 / scale);
+        self.pet.set_custom_width(placement.width as f32 / scale);
+        self.pet.set_custom_height(placement.height as f32 / scale);
         let key = (
             index,
             size.width,
             size.height,
+            scale.to_bits(),
             view.paused,
             view.pending > 0,
         );
@@ -324,7 +346,7 @@ impl Shell {
                 size.height,
                 view.paused,
                 view.pending > 0,
-                self.pet.window().scale_factor(),
+                scale,
             );
             match desktop::alpha_region(hwnd, &spans) {
                 Ok(()) => self.alpha_key.set(Some(key)),
@@ -621,17 +643,15 @@ impl Shell {
                     let result = (|| {
                         let preset = kavychka_storage::presets::read(&root, &id)
                             .map_err(|e| e.to_string())?;
-                        if let kavychka_storage::presets::Content::Visual { file, layout } =
-                            preset.content
-                        {
+                        if let Some((file, layout)) = preset.content.visual() {
                             crate::visuals::load(
                                 &kavychka_storage::presets::inside(
                                     &kavychka_storage::presets::folder(&root, &id)
                                         .map_err(|e| e.to_string())?,
-                                    &file,
+                                    file,
                                 )
                                 .map_err(|e| e.to_string())?,
-                                &layout,
+                                layout,
                             )
                         } else {
                             Err("Selected preset is not a visual".into())
@@ -680,14 +700,7 @@ impl Shell {
             tray.set_breakfast_done(view.breakfast_done);
         }
         if let Some(ui) = self.ui.upgrade() {
-            ui.set_background_running(true);
-            ui.set_on_battery(view.on_battery);
-            ui.set_runtime_status(view.status.as_str().into());
-            ui.set_next_reminder(view.next.as_str().into());
-            ui.set_pause_caption(view.countdown.as_str().into());
-            ui.set_breakfast_done(view.breakfast_done);
-            ui.set_pending_text(view.notice.as_ref().map_or("", |n| n.text.as_str()).into());
-            ui.set_pending_key(view.notice.as_ref().map_or("", |n| n.key.as_str()).into());
+            apply_runtime_status(&ui, &view);
             if !ui.get_dirty() && !ui.get_busy() {
                 super::apply(&ui, &view.prefs);
             }

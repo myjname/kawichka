@@ -38,6 +38,9 @@ with contextlib.redirect_stdout(sys.stderr):
     import soundfile as sf
     import torch
     import torchaudio
+    # Embedded Python's isolated ._pth omits the script directory.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from kavychka_local.cosy import prepare_precision, inference_errors
     from cosyvoice.utils import file_utils
     def load_wav(path, target_sr, min_sr=16000):
         audio, rate = sf.read(path, dtype="float32", always_2d=True)
@@ -61,7 +64,11 @@ with contextlib.redirect_stdout(sys.stderr):
         for name in ("hifigan", "parquet_opener", "tokenize", "filter", "resample", "truncate", "compute_fbank",
                      "compute_f0", "parse_embedding", "shuffle", "sort", "batch", "padding"):
             overrides[name] = None
-        return original_yaml(stream, overrides=overrides, **kwargs)
+        configs = original_yaml(stream, overrides=overrides, **kwargs)
+        # The trained llm.pt is FP32. Convert before model.load copies it into
+        # Qwen's config-default BF16 parameters, preserving the checkpoint bits.
+        prepare_precision(configs['llm'], torch.cuda.is_available())
+        return configs
     cli.load_hyperpyyaml = inference_yaml
     from cosyvoice.utils.common import set_all_random_seed
     torch.set_num_threads(4)
@@ -71,6 +78,7 @@ with contextlib.redirect_stdout(sys.stderr):
         if not args.model or not (args.model / "cosyvoice3.yaml").is_file():
             raise ValueError("Install the CosyVoice 3 model first")
         model = cli.AutoModel(model_dir=str(args.model), fp16=torch.cuda.is_available())
+        prepare_precision(model.model.llm, torch.cuda.is_available())
 if args.check_only:
     print(json.dumps({"checked": True}), flush=True)
     raise SystemExit(0)
@@ -84,8 +92,9 @@ for line in sys.stdin:
         with contextlib.redirect_stdout(sys.stderr), torch.inference_mode():
             set_all_random_seed(request["seed"])
             instruction = "You are a helpful assistant. " + request["instruction"] + "<|endofprompt|>"
-            chunks = list(model.inference_instruct2(request["text"], instruction, request["reference"],
-                                                    stream=False, text_frontend=False))
+            with inference_errors():
+                chunks = list(model.inference_instruct2(request["text"], instruction, request["reference"],
+                                                        stream=False, text_frontend=False))
             audio = torch.cat([chunk["tts_speech"].detach().float().cpu() for chunk in chunks], dim=1).squeeze(0).numpy()
             if not np.isfinite(audio).all() or len(audio) < model.sample_rate // 4:
                 raise ValueError("Empty or invalid speech")

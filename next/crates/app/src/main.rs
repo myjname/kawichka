@@ -1,12 +1,15 @@
 //! Working P3 shell. Explicit isolated data only; no implicit live-store migration.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod bootstrap;
+mod controls_smoke;
 mod data_ops;
+mod display_path;
 mod frame_measurement;
 mod frame_probe;
 mod inference;
 mod library_ui_smoke;
 mod migration_smoke;
+mod model_setup_smoke;
 mod models_library;
 mod models_smoke;
 mod models_ui;
@@ -666,7 +669,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     shell::select_backend(false)?;
     let ui = AppWindow::new()?;
     ui.set_app_version(app_version().into());
-    ui.set_storage_path(args.data.to_string_lossy().as_ref().into());
+    ui.set_storage_path(crate::display_path::display(&args.data).into());
     ui.set_system_dark(kavychka_platform::dark_preference().unwrap_or(false));
     let theme_timer = slint::Timer::default();
     let weak = ui.as_weak();

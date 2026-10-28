@@ -20,7 +20,8 @@ from kavychka_local.store import DEFAULTS
 class LocaleTests(unittest.TestCase):
     def test_templates_keep_paths_model_names_and_speech_text(self):
         self.assertEqual("Downloading: голос.flac", text("Загрузка: голос.flac", "en"))
-        self.assertEqual("Install “tts-0.6b” in Models first", text("Сначала установите компонент «tts-0.6b» на вкладке «Модели»", "en"))
+        self.assertEqual("Selected model files are not ready. Open Voice and models and choose Set up models.",
+                         text("Файлы выбранной модели не готовы. Откройте «Голос и модели» и нажмите «Подготовить модели».", "en"))
         self.assertEqual("Speech: Фраза не найдена", text("Озвучка: Фраза не найдена", "en"))
         self.assertEqual("Голосовая запись отсутствует", text("Voice reference is missing", "ru"))
         self.assertIn("wording", text("Повтор генерации: Повторяется прежняя формулировка или начало.", "en"))

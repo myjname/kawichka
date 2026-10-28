@@ -11,6 +11,16 @@ sys.path.insert(0,str(ROOT/'backend'))
 from kavychka_local.profiles import Profiles, inside
 
 class ProfileBoundaryTests(unittest.TestCase):
+    def test_complete_character_resolves_voice_without_mutating_other_components(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'work') as temp:
+            profiles=Profiles(ROOT,Path(temp));folder=profiles.root/'examplepack';folder.mkdir()
+            (folder/'clip.wav').write_bytes(b'RIFF prepared fixture')
+            item=dict(version=1,kind='character_pack',name='Example',description='Neutral reminder companion.',references=[dict(file='clip.wav',transcript='Reference text.')],visual=dict(file='pet.gif',layout='pixel'),delivery='auto',instruction='')
+            original=json.dumps(item);(folder/'preset.json').write_text(original,encoding='utf-8')
+            refs=profiles.voice('examplepack');self.assertEqual(len(refs),1);self.assertEqual(refs[0]['transcript'],'Reference text.');self.assertEqual(refs[0]['path'],folder/'clip.wav');self.assertEqual((folder/'preset.json').read_text(encoding='utf-8'),original)
+            item['references']=[dict(file='../escape.wav')];(folder/'preset.json').write_text(json.dumps(item),encoding='utf-8')
+            with self.assertRaises(ValueError):profiles.voice('examplepack')
+
     def test_padded_manifest_is_rejected_without_publishing_or_leaking_stage(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'work') as temp:
             root=Path(temp);profiles=Profiles(ROOT,root/'data');source=root/'large.kavychka'

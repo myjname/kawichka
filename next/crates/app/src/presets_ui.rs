@@ -6,9 +6,15 @@ use kavychka_core::preferences::Preferences;
 use kavychka_storage::presets::{Content, Entry, Preset};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::path::PathBuf;
+use std::sync::mpsc::SyncSender;
+mod acceptance;
+pub fn verify_complete_character(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    acceptance::run(output)
+}
 pub enum Action {
     Import(PathBuf, String, String),
     Save(String, Preset),
+    SavePack(String, Box<Preferences>),
     Export(String),
     Delete(String),
 }
@@ -42,32 +48,79 @@ pub fn render(ui: &AppWindow, entries: &[Entry]) {
         id(ui.get_visual_ids(), ui.get_visual_index())
     };
     let mut ids = vec![String::new()];
-    let mut names = vec!["Новый характер / New character".into()];
+    let en = ui.get_english();
+    let mut names = vec![
+        if en {
+            "New character"
+        } else {
+            "Новый персонаж"
+        }
+        .into(),
+    ];
     let mut chars = vec![String::new()];
-    let mut charnames = vec!["Своё описание / Custom description".into()];
+    let mut charnames = vec![
+        if en {
+            "Custom components"
+        } else {
+            "Свои компоненты"
+        }
+        .into(),
+    ];
     let mut visuals = vec![String::new()];
-    let mut visualnames = vec!["Кавычка / Kavychka".into()];
+    let mut visualnames = vec![if en { "Kavychka" } else { "Кавычка" }.into()];
     for entry in entries {
         ids.push(entry.id.clone());
         names.push(format!(
             "{} · {}",
             entry.preset.name,
             match entry.preset.content {
-                Content::Character { .. } => "Character",
-                Content::Voice { .. } => "Voice",
-                Content::Visual { .. } => "Visual",
+                Content::Character { .. } =>
+                    if en {
+                        "character"
+                    } else {
+                        "характер"
+                    },
+                Content::Voice { .. } =>
+                    if en {
+                        "voice"
+                    } else {
+                        "голос"
+                    },
+                Content::Visual { .. } =>
+                    if en {
+                        "appearance"
+                    } else {
+                        "внешность"
+                    },
+                Content::CharacterPack { .. } =>
+                    if en {
+                        "complete character"
+                    } else {
+                        "персонаж целиком"
+                    },
             }
         ));
-        match entry.preset.content {
-            Content::Character { .. } => {
-                chars.push(entry.id.clone());
-                charnames.push(entry.preset.name.clone());
-            }
-            Content::Visual { .. } => {
-                visuals.push(entry.id.clone());
-                visualnames.push(entry.preset.name.clone());
-            }
-            _ => (),
+        if entry.preset.content.description().is_some() {
+            chars.push(entry.id.clone());
+            charnames.push(
+                if matches!(entry.preset.content, Content::Character { .. }) {
+                    format!(
+                        "{} · {}",
+                        entry.preset.name,
+                        if en {
+                            "character only"
+                        } else {
+                            "только характер"
+                        }
+                    )
+                } else {
+                    entry.preset.name.clone()
+                },
+            );
+        }
+        if entry.preset.content.visual().is_some() {
+            visuals.push(entry.id.clone());
+            visualnames.push(entry.preset.name.clone());
         }
     }
     ui.set_preset_index(ids.iter().position(|i| *i == selected).unwrap_or(0) as i32);
@@ -89,6 +142,60 @@ pub fn render(ui: &AppWindow, entries: &[Entry]) {
             .position(|v| v == visual.as_str())
             .unwrap_or(0) as i32,
     );
+    // Only explicit preset operations produce this result. Restoring a profile
+    // or refreshing a library must never silently replace the current draft.
+    if let Ok(view) =
+        serde_json::from_str::<crate::models_library::View>(ui.get_library_json().as_str())
+        && !view.imported_preset.is_empty()
+        && ui.get_last_imported_preset() != view.imported_preset
+        && let Some(entry) = entries.iter().find(|e| e.id == view.imported_preset)
+    {
+        ui.set_last_imported_preset(entry.id.as_str().into());
+        ui.set_preset_index(
+            ui.get_preset_ids()
+                .iter()
+                .position(|s| s == entry.id.as_str())
+                .unwrap_or(0) as i32,
+        );
+        apply_selection(ui, entry);
+        let _ = select(ui);
+        ui.invoke_edited();
+    }
+}
+fn choose(ids: ModelRc<slint::SharedString>, value: &str) -> i32 {
+    ids.iter().position(|s| s == value).unwrap_or(0) as i32
+}
+fn apply_selection(ui: &AppWindow, entry: &Entry) {
+    match &entry.preset.content {
+        Content::CharacterPack {
+            description,
+            references,
+            visual,
+            delivery,
+            instruction,
+        } => {
+            ui.set_character_description(description.as_str().into());
+            ui.set_character_index(choose(ui.get_character_ids(), &entry.id));
+            ui.set_voice_profile_index(choose(
+                ui.get_voice_profile_ids(),
+                if references.is_empty() { "" } else { &entry.id },
+            ));
+            ui.set_visual_index(choose(
+                ui.get_visual_ids(),
+                if visual.is_none() { "" } else { &entry.id },
+            ));
+            ui.set_delivery_index(if delivery == "custom" { 1 } else { 0 });
+            ui.set_custom_instruction(instruction.as_str().into());
+        }
+        Content::Character { description } => {
+            ui.set_character_description(description.as_str().into());
+            ui.set_character_index(choose(ui.get_character_ids(), &entry.id));
+        }
+        Content::Voice { .. } => {
+            ui.set_voice_profile_index(choose(ui.get_voice_profile_ids(), &entry.id))
+        }
+        Content::Visual { .. } => ui.set_visual_index(choose(ui.get_visual_ids(), &entry.id)),
+    }
 }
 pub fn apply(ui: &AppWindow, p: &Preferences) {
     if ui.get_time_zone_ids().row_count() == 0 {
@@ -167,9 +274,34 @@ fn stash(ui: &AppWindow) -> Result<Preset, String> {
             *layout = match ui.get_visual_layout() {
                 1 => "image",
                 2 => "codex",
+                3 => "pixel",
+                4 => "smooth",
                 _ => "auto",
             }
             .into()
+        }
+        Content::CharacterPack {
+            description,
+            references,
+            visual,
+            ..
+        } => {
+            let n = ui.get_editing_reference().max(0) as usize;
+            if n == 0 {
+                *description = ui.get_preset_body().to_string();
+            } else if let Some(r) = references.get_mut(n - 1) {
+                r.transcript = ui.get_preset_body().to_string();
+            }
+            if let Some(v) = visual {
+                v.layout = match ui.get_visual_layout() {
+                    1 => "image",
+                    2 => "codex",
+                    3 => "pixel",
+                    4 => "smooth",
+                    _ => "auto",
+                }
+                .into();
+            }
         }
     }
     ui.set_preset_json(serde_json::to_string(&p).map_err(|e| e.to_string())?.into());
@@ -188,6 +320,7 @@ fn select(ui: &AppWindow) -> Result<(), String> {
                 description: String::new(),
             },
         });
+    ui.set_preset_has_visual(p.content.visual().is_some());
     ui.set_preset_name(p.name.as_str().into());
     ui.set_reference_index(0);
     ui.set_editing_reference(0);
@@ -207,29 +340,113 @@ fn select(ui: &AppWindow) -> Result<(), String> {
             ui.set_visual_layout(match layout.as_str() {
                 "image" => 1,
                 "codex" => 2,
+                "pixel" => 3,
+                "smooth" => 4,
                 _ => 0,
             });
+        }
+        Content::CharacterPack {
+            description,
+            references,
+            visual,
+            ..
+        } => {
+            let mut names = vec![
+                if ui.get_english() {
+                    "Character description"
+                } else {
+                    "Описание характера"
+                }
+                .into(),
+            ];
+            names.extend(references.iter().enumerate().map(|(i, _)| {
+                format!(
+                    "{} {}",
+                    if ui.get_english() {
+                        "Voice reference"
+                    } else {
+                        "Референс голоса"
+                    },
+                    i + 1
+                )
+            }));
+            if let Some(v) = visual {
+                names.push(
+                    if ui.get_english() {
+                        "Appearance"
+                    } else {
+                        "Внешность"
+                    }
+                    .into(),
+                );
+                ui.set_visual_layout(match v.layout.as_str() {
+                    "image" => 1,
+                    "codex" => 2,
+                    "pixel" => 3,
+                    "smooth" => 4,
+                    _ => 0,
+                });
+            }
+            ui.set_reference_names(strings(names));
+            ui.set_preset_body(description.as_str().into());
         }
     }
     ui.set_preset_json(serde_json::to_string(&p).map_err(|e| e.to_string())?.into());
     Ok(())
 }
+fn import_character_path(
+    ui: &AppWindow,
+    sender: &SyncSender<Command>,
+    path: PathBuf,
+) -> Result<(), String> {
+    let extension = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(extension.as_str(), "kavychka" | "zip" | "json" | "txt") {
+        return Err(if ui.get_english() {
+            "Choose a character preset (.kavychka, .zip or .json) or a description (.txt)"
+        } else {
+            "Выбери пресет персонажа (.kavychka, .zip или .json) либо описание (.txt)"
+        }
+        .into());
+    }
+    ui.set_library_status(
+        if ui.get_english() {
+            "Checking character preset…"
+        } else {
+            "Проверка персонажа…"
+        }
+        .into(),
+    );
+    sender
+        .try_send(Command::Preset(Box::new(Action::Import(
+            path,
+            "character".into(),
+            String::new(),
+        ))))
+        .map_err(|e| e.to_string())
+}
 pub fn wire(ui: &AppWindow, backend: &Backend) {
+    let weak = ui.as_weak();
+    let sender = backend.sender.clone();
+    ui.on_import_character(move || {
+        if let Some(ui) = weak.upgrade()
+            && let Some(path) = kavychka_platform::dialogs::open()
+            && let Err(error) = import_character_path(&ui, &sender, path)
+        {
+            ui.set_library_status(error.into());
+        }
+    });
     let weak = ui.as_weak();
     ui.on_character_selected(move || {
         if let Some(ui) = weak.upgrade() {
             let selected = id(ui.get_character_ids(), ui.get_character_index());
             if let Ok(entries) = entries(&ui)
-                && let Some(Entry {
-                    preset:
-                        Preset {
-                            content: Content::Character { description },
-                            ..
-                        },
-                    ..
-                }) = entries.into_iter().find(|e| e.id == selected)
+                && let Some(entry) = entries.into_iter().find(|e| e.id == selected)
             {
-                ui.set_character_description(description.into());
+                apply_selection(&ui, &entry);
             }
         }
     });
@@ -238,7 +455,7 @@ pub fn wire(ui: &AppWindow, backend: &Backend) {
         if let Some(ui) = weak.upgrade()
             && let Some(path) = kavychka_platform::dialogs::open()
         {
-            ui.set_import_path(path.to_string_lossy().as_ref().into());
+            ui.set_import_path(crate::display_path::display(&path).into());
         }
     });
     let weak = ui.as_weak();
@@ -255,10 +472,54 @@ pub fn wire(ui: &AppWindow, backend: &Backend) {
             && let Ok(p) = stash(&ui)
         {
             ui.set_editing_reference(ui.get_reference_index());
-            if let Content::Voice { references } = p.content
+            if let Content::Voice { references } = &p.content
                 && let Some(r) = references.get(ui.get_reference_index().max(0) as usize)
             {
                 ui.set_preset_body(r.transcript.as_str().into());
+            } else if let Content::CharacterPack {
+                description,
+                references,
+                ..
+            } = &p.content
+            {
+                ui.set_preset_body(
+                    if ui.get_reference_index() == 0 {
+                        description.as_str()
+                    } else {
+                        references
+                            .get(ui.get_reference_index().max(1) as usize - 1)
+                            .map(|r| r.transcript.as_str())
+                            .unwrap_or("")
+                    }
+                    .into(),
+                );
+            }
+        }
+    });
+    let weak = ui.as_weak();
+    let sender = backend.sender.clone();
+    ui.on_save_character_pack(move || {
+        if let Some(ui) = weak.upgrade() {
+            let result = (|| {
+                let prefs = crate::collect(&ui)?;
+                let name = ui.get_character_pack_name().to_string();
+                if name.trim().is_empty() {
+                    return Err(if ui.get_english() {
+                        "Enter a character name"
+                    } else {
+                        "Введи название персонажа"
+                    }
+                    .to_string());
+                }
+                sender
+                    .try_send(Command::Preset(Box::new(Action::SavePack(
+                        name,
+                        Box::new(prefs),
+                    ))))
+                    .map_err(|e| e.to_string())
+            })();
+            if let Err(e) = result {
+                ui.set_library_status(e.into());
             }
         }
     });
@@ -282,7 +543,20 @@ pub fn wire(ui: &AppWindow, backend: &Backend) {
                         ),
                         1 => Action::Save(chosen, stash(&ui)?),
                         2 => Action::Export(chosen),
-                        _ => Action::Delete(chosen),
+                        _ => {
+                            let draft = crate::collect(&ui)?;
+                            if chosen == draft.desktop.character_preset
+                                || chosen == draft.generation.voice_profile
+                                || chosen == draft.desktop.visual_preset
+                            {
+                                return Err(if ui.get_english() {
+                                    "Select another character, voice and appearance, then save settings before deleting this preset"
+                                } else {
+                                    "Сначала выбери другой характер, голос и внешность, затем сохрани настройки перед удалением пресета"
+                                }.to_string());
+                            }
+                            Action::Delete(chosen)
+                        }
                     };
                     sender
                         .try_send(Command::Preset(Box::new(action)))

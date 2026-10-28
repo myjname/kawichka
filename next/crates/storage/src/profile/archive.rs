@@ -355,6 +355,18 @@ pub fn inspect(
     if zip.len() > 20001 {
         return Err(invalid("profile contains too many files"));
     }
+    if !zip.file_names().any(|name| name == "manifest.json")
+        && zip.file_names().any(|name| {
+            name == "preset.json"
+                || Path::new(name)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("kavychka"))
+        })
+    {
+        return Err(invalid(
+            "character preset archive; import in Character after setup",
+        ));
+    }
     let manifest: Manifest = {
         let mut file = zip.by_name("manifest.json").map_err(zip_error)?;
         if file.size() > MANIFEST_LIMIT {

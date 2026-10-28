@@ -90,6 +90,10 @@ fn query_phrases(
         .map_err(Error::from)
 }
 impl Sandbox {
+    /// Counts are independent of page and do not materialize the phrase history.
+    pub fn phrase_totals(&self, day: &str) -> Result<(usize, usize)> {
+        Ok(self.connection.query_row("SELECT COUNT(*),COALESCE(SUM(CASE WHEN day=?1 THEN 1 ELSE 0 END),0) FROM phrases WHERE deleted=0",[day],|row|Ok((row.get::<_,i64>(0)?.max(0) as usize,row.get::<_,i64>(1)?.max(0) as usize)))?)
+    }
     pub fn set_recovery_limit(&mut self, bytes: u64) -> Result<()> {
         let mut prefs = self.load()?;
         prefs.desktop.recovery_limit_bytes = bytes;
@@ -222,8 +226,8 @@ impl Sandbox {
         }
         if !prefs.desktop.character_preset.is_empty() {
             let p = crate::presets::read(&self.root, &prefs.desktop.character_preset)?;
-            if let crate::presets::Content::Character { description } = p.content {
-                prefs.generation.character_description = description
+            if let Some(description) = p.content.description() {
+                prefs.generation.character_description = description.into()
             } else {
                 return Err(Error::Invalid(
                     "selected character preset has another kind".into(),
@@ -232,7 +236,7 @@ impl Sandbox {
         }
         if !prefs.desktop.visual_preset.is_empty() {
             let p = crate::presets::read(&self.root, &prefs.desktop.visual_preset)?;
-            if !matches!(p.content, crate::presets::Content::Visual { .. }) {
+            if p.content.visual().is_none() {
                 return Err(Error::Invalid(
                     "selected visual preset has another kind".into(),
                 ));
@@ -240,7 +244,7 @@ impl Sandbox {
         }
         if !prefs.generation.voice_profile.is_empty() {
             let p = crate::presets::read(&self.root, &prefs.generation.voice_profile)?;
-            if !matches!(p.content, crate::presets::Content::Voice { .. }) {
+            if p.content.references().is_none() {
                 return Err(Error::Invalid(
                     "selected voice preset has another kind".into(),
                 ));

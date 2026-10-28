@@ -6,11 +6,22 @@ use std::{
     path::{Path, PathBuf},
 };
 const LIMIT: u64 = 200 * 1024 * 1024;
+mod packs;
+pub use packs::{import_collection, save_current_pack};
+#[cfg(test)]
+#[path = "presets/packs_tests.rs"]
+mod packs_tests;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Reference {
     pub file: String,
     #[serde(default)]
     pub transcript: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackVisual {
+    pub file: String,
+    #[serde(default = "auto")]
+    pub layout: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -26,6 +37,50 @@ pub enum Content {
         #[serde(default = "auto")]
         layout: String,
     },
+    /// Self-contained character: no external IDs or paths survive export.
+    CharacterPack {
+        description: String,
+        #[serde(default)]
+        references: Vec<Reference>,
+        #[serde(default)]
+        visual: Option<PackVisual>,
+        #[serde(default = "automatic")]
+        delivery: String,
+        #[serde(default)]
+        instruction: String,
+    },
+}
+fn automatic() -> String {
+    "auto".into()
+}
+impl Content {
+    pub fn description(&self) -> Option<&str> {
+        match self {
+            Self::Character { description } | Self::CharacterPack { description, .. } => {
+                Some(description)
+            }
+            _ => None,
+        }
+    }
+    pub fn references(&self) -> Option<&[Reference]> {
+        match self {
+            Self::Voice { references } | Self::CharacterPack { references, .. }
+                if !references.is_empty() =>
+            {
+                Some(references)
+            }
+            _ => None,
+        }
+    }
+    pub fn visual(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Visual { file, layout } => Some((file, layout)),
+            Self::CharacterPack {
+                visual: Some(v), ..
+            } => Some((&v.file, &v.layout)),
+            _ => None,
+        }
+    }
 }
 fn auto() -> String {
     "auto".into()
@@ -92,6 +147,15 @@ impl Preset {
             Content::Character { .. } => vec![],
             Content::Voice { references } => references.iter().map(|r| r.file.as_str()).collect(),
             Content::Visual { file, .. } => vec![file],
+            Content::CharacterPack {
+                references, visual, ..
+            } => {
+                let mut files: Vec<_> = references.iter().map(|r| r.file.as_str()).collect();
+                if let Some(v) = visual {
+                    files.push(v.file.as_str());
+                }
+                files
+            }
         }
     }
     pub fn validate(&self, root: &Path) -> Result<()> {
@@ -121,22 +185,59 @@ impl Preset {
                 }
             }
             Content::Visual { file, layout } => {
-                if !matches!(layout.as_str(), "auto" | "image" | "codex")
-                    || !extension(file, &["png", "jpg", "jpeg", "gif", "webp"])
+                if !matches!(
+                    layout.as_str(),
+                    "auto" | "image" | "codex" | "pixel" | "smooth"
+                ) || !extension(file, &["png", "jpg", "jpeg", "gif", "webp"])
                 {
                     return Err(invalid("invalid visual format/layout"));
                 }
             }
+            Content::CharacterPack {
+                description,
+                references,
+                visual,
+                delivery,
+                instruction,
+            } => {
+                if description.trim().is_empty()
+                    || description.chars().count() > 4000
+                    || references.len() > 8
+                    || references.iter().any(|r| {
+                        r.transcript.chars().count() > 4000 || !extension(&r.file, &["wav", "flac"])
+                    })
+                    || !matches!(delivery.as_str(), "auto" | "custom")
+                    || instruction.chars().count() > 600
+                    || instruction.contains("<|")
+                    || delivery == "custom" && instruction.trim().is_empty()
+                    || visual.as_ref().is_some_and(|v| {
+                        !matches!(
+                            v.layout.as_str(),
+                            "auto" | "image" | "codex" | "pixel" | "smooth"
+                        ) || !extension(&v.file, &["png", "jpg", "jpeg", "gif", "webp"])
+                    })
+                {
+                    return Err(invalid("invalid complete character preset"));
+                }
+            }
         }
         let mut total = 0;
+        let mut seen = std::collections::BTreeSet::new();
         for file in self.files() {
+            if !seen.insert(file.to_lowercase()) {
+                return Err(invalid("duplicate preset media path"));
+            }
             let path = inside(root, file)?;
             let metadata = path.metadata()?;
             total += metadata.len();
             if !metadata.is_file() || metadata.len() == 0 || total > LIMIT {
                 return Err(invalid("preset media missing or exceeds 200 MiB"));
             }
-            if matches!(self.content, Content::Voice { .. }) {
+            if self
+                .content
+                .references()
+                .is_some_and(|refs| refs.iter().any(|r| r.file == file))
+            {
                 audio_header(&path)?;
             }
         }
@@ -343,13 +444,18 @@ pub fn import_file(root: &Path, source: &Path) -> Result<String> {
         )?;
         return import_prepared(root, &p, source.parent());
     }
+    // A collection is a ZIP of component .kavychka files, not a profile backup.
+    // Inspect by contents so the file name and extension are irrelevant.
+    if packs::is_collection(source)? {
+        return import_collection(root, source);
+    }
     let file = std::fs::File::open(source)?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| invalid(&e.to_string()))?;
     if archive.len() > 150 {
         return Err(invalid("too many preset entries"));
     }
     let mut seen = std::collections::BTreeSet::new();
-    let mut size = 0;
+    let mut size = 0u64;
     for i in 0..archive.len() {
         let entry = archive.by_index(i).map_err(|e| invalid(&e.to_string()))?;
         let name = entry.name().trim_end_matches('/');
@@ -359,7 +465,9 @@ pub fn import_file(root: &Path, source: &Path) -> Result<String> {
         {
             return Err(invalid("duplicate or linked archive entry"));
         }
-        size += entry.size();
+        size = size
+            .checked_add(entry.size())
+            .ok_or_else(|| invalid("preset size overflow"))?;
         if size > LIMIT {
             return Err(invalid("expanded preset exceeds 200 MiB"));
         }
@@ -475,6 +583,62 @@ fn remove_tree(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn forged_zip64_totals_fail_without_panicking_or_changing_existing_presets() {
+        let t = temp();
+        let existing = save_character(t.path(), "", "Existing".into(), "Keep me".into()).unwrap();
+        let existing_manifest =
+            std::fs::read(folder(t.path(), &existing).unwrap().join("preset.json")).unwrap();
+        let source = t.path().join("overflow.kavychka");
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .start_file("preset.json", zip::write::FileOptions::default())
+            .unwrap();
+        writer
+            .write_all(
+                br#"{"version":1,"kind":"character","name":"Fixture","description":"Neutral"}"#,
+            )
+            .unwrap();
+        writer
+            .start_file("extra.bin", zip::write::FileOptions::default())
+            .unwrap();
+        writer.write_all(b"x").unwrap();
+        let mut bytes = writer.finish().unwrap().into_inner();
+        let header = bytes
+            .windows(4)
+            .enumerate()
+            .filter(|(_, b)| *b == b"PK\x01\x02")
+            .map(|(i, _)| i)
+            .nth(1)
+            .unwrap();
+        let name_len =
+            u16::from_le_bytes(bytes[header + 28..header + 30].try_into().unwrap()) as usize;
+        assert_eq!(
+            u16::from_le_bytes(bytes[header + 30..header + 32].try_into().unwrap()),
+            0
+        );
+        bytes[header + 24..header + 28].copy_from_slice(&u32::MAX.to_le_bytes());
+        bytes[header + 30..header + 32].copy_from_slice(&12u16.to_le_bytes());
+        let mut extra = vec![1, 0, 8, 0];
+        extra.extend(u64::MAX.to_le_bytes());
+        bytes.splice(header + 46 + name_len..header + 46 + name_len, extra);
+        let end = bytes.len() - 22;
+        assert_eq!(&bytes[end..end + 4], b"PK\x05\x06");
+        let old_size = u32::from_le_bytes(bytes[end + 12..end + 16].try_into().unwrap());
+        bytes[end + 12..end + 16].copy_from_slice(&(old_size + 12).to_le_bytes());
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        assert_eq!(archive.by_name("extra.bin").unwrap().size(), u64::MAX);
+        std::fs::write(&source, &bytes).unwrap();
+        let error = import_file(t.path(), &source).unwrap_err().to_string();
+        assert!(error.contains("preset size overflow"), "{error}");
+        assert_eq!(list(t.path()).unwrap().len(), 1);
+        assert_eq!(
+            std::fs::read(folder(t.path(), &existing).unwrap().join("preset.json")).unwrap(),
+            existing_manifest
+        );
+        assert_eq!(std::fs::read_dir(t.path().join("jobs")).unwrap().count(), 0);
+        assert_eq!(std::fs::read(source).unwrap(), bytes);
+    }
     #[test]
     fn forged_zip_sizes_are_rejected_before_unbounded_read_or_publication() {
         for manifest_bomb in [true, false] {

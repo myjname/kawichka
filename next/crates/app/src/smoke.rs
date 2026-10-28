@@ -1,7 +1,7 @@
 //! Drives this application's own Slint window, never the user's desktop.
 use super::*;
 use slint::{
-    LogicalPosition,
+    LogicalPosition, Model,
     platform::{
         EventLoopProxy, Platform, PointerEventButton, WindowAdapter, WindowEvent,
         software_renderer::MinimalSoftwareWindow,
@@ -160,7 +160,7 @@ pub fn run_native(data: PathBuf, output: PathBuf) -> Result<(), Box<dyn std::err
                 match phase {
                     0 if ui.get_ready() => {
                         native_snapshot(&ui, &evidence.join("overview.png"))?;
-                        click(&ui, 100., 180.);
+                        click(&ui, 100., 122.);
                         phase = 1;
                     }
                     1 => {
@@ -258,6 +258,184 @@ pub fn run(data: PathBuf, output: PathBuf) -> Result<(), Box<dyn std::error::Err
 }
 /// Public callbacks + real service/storage, using an in-memory software window.
 /// No HWND, global input, desktop changes, Python or audio playback.
+/// Capture the real compact UI in an isolated software renderer. No OS windows,
+/// desktop input, installation or model downloads are performed by this catalog.
+fn capture_review_matrix(
+    ui: &AppWindow,
+    window: &MinimalSoftwareWindow,
+    events: &Events,
+    output: &std::path::Path,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let folder = output.join("matrix");
+    std::fs::create_dir(&folder)?;
+    let pages = [
+        "today",
+        "schedule",
+        "library",
+        "models",
+        "character",
+        "settings",
+        "data",
+        "help",
+    ];
+    let initial_page = ui.get_page();
+    let initial_language = ui.get_language_index();
+    let initial_theme = ui.get_theme_index();
+    let mut evidence = Vec::new();
+    for (width, height) in [(1100, 780), (720, 540)] {
+        window.set_size(slint::PhysicalSize::new(width, height));
+        for language in 0..2 {
+            ui.set_language_index(language);
+            ui.invoke_edited();
+            ui.invoke_save();
+            wait(events, || !ui.get_busy() && !ui.get_failed())?;
+            for theme in [1, 2] {
+                ui.set_theme_index(theme);
+                let tag = format!(
+                    "{}-{}-{width}x{height}",
+                    if language == 0 { "ru" } else { "en" },
+                    if theme == 1 { "light" } else { "dark" }
+                );
+                for (page, name) in pages.iter().enumerate() {
+                    ui.set_page(page as i32);
+                    ui.set_scroll_y(0.);
+                    pump(events);
+                    let filename = format!("{name}-{tag}-top.png");
+                    render(window, &folder.join(&filename))?;
+                    evidence.push(filename);
+                    if ui.get_scroll_overflow() > 2. {
+                        ui.set_scroll_y(-ui.get_scroll_overflow());
+                        let filename = format!("{name}-{tag}-bottom.png");
+                        render(window, &folder.join(&filename))?;
+                        evidence.push(filename);
+                    }
+                }
+                for (page, name) in [
+                    (2, "library"),
+                    (3, "models"),
+                    (4, "character"),
+                    (6, "data"),
+                    (7, "help"),
+                ] {
+                    ui.set_page(page);
+                    ui.set_library_controls(page == 2);
+                    ui.set_model_advanced(page == 3);
+                    ui.set_character_options(page == 4);
+                    ui.set_preset_management(page == 4);
+                    ui.set_delivery_editor(page == 4);
+                    ui.set_data_advanced(page == 6);
+                    if page == 2
+                        && let Some(row) = ui.get_library_items().row_data(0)
+                    {
+                        ui.set_expanded_phrase(row.identifier);
+                    }
+                    if page == 7 {
+                        ui.set_profile_review("diagnostic".into());
+                        ui.set_profile_summary_ru("Пример локальной диагностики для проверки интерфейса. Данные не отправляются.".into());
+                        ui.set_profile_summary_en(
+                            "Local diagnostic preview for UI review. No data is sent.".into(),
+                        );
+                    }
+                    ui.set_scroll_y(0.);
+                    pump(events);
+                    let filename = format!("{name}-{tag}-expanded-top.png");
+                    render(window, &folder.join(&filename))?;
+                    evidence.push(filename);
+                    if ui.get_scroll_overflow() > 2. {
+                        ui.set_scroll_y(-ui.get_scroll_overflow());
+                        let filename = format!("{name}-{tag}-expanded-bottom.png");
+                        render(window, &folder.join(&filename))?;
+                        evidence.push(filename);
+                    }
+                    ui.set_library_controls(false);
+                    ui.set_model_advanced(false);
+                    ui.set_character_options(false);
+                    ui.set_preset_management(false);
+                    ui.set_delivery_editor(false);
+                    ui.set_data_advanced(false);
+                    ui.set_expanded_phrase("".into());
+                    ui.set_profile_review("".into());
+                }
+                ui.set_page(3);
+                ui.set_scroll_y(0.);
+                for (state, progress, error) in [
+                    ("working", -1., false),
+                    ("progress", 0.4, false),
+                    ("error", -1., true),
+                ] {
+                    ui.set_generation_running(!error);
+                    ui.set_task_progress(progress);
+                    ui.set_task_error(error);
+                    ui.set_task_title(
+                        (if language == 0 {
+                            "Модели · пример"
+                        } else {
+                            "Models · preview"
+                        })
+                        .into(),
+                    );
+                    ui.set_library_status(
+                        (if language == 0 {
+                            if error {
+                                "Проверка не прошла. Открой подробности."
+                            } else {
+                                "Проверяем необходимые компоненты"
+                            }
+                        } else if error {
+                            "Check failed. Open details."
+                        } else {
+                            "Checking required components"
+                        })
+                        .into(),
+                    );
+                    let filename = format!("tasks-{state}-{tag}.png");
+                    render(window, &folder.join(&filename))?;
+                    evidence.push(filename);
+                }
+                ui.set_generation_running(false);
+                ui.set_task_error(false);
+                ui.set_task_progress(-1.);
+                ui.set_task_title("".into());
+                ui.set_library_status("".into());
+                ui.set_onboarding(true);
+                for step in 0..4 {
+                    ui.set_setup_step(step);
+                    ui.set_onboarding_scroll_y(0.);
+                    pump(events);
+                    let filename = format!("onboarding-{step}-{tag}.png");
+                    render(window, &folder.join(&filename))?;
+                    evidence.push(filename);
+                    if ui.get_onboarding_scroll_overflow() > 2. {
+                        ui.set_onboarding_scroll_y(-ui.get_onboarding_scroll_overflow());
+                        let filename = format!("onboarding-{step}-{tag}-bottom.png");
+                        render(window, &folder.join(&filename))?;
+                        evidence.push(filename);
+                    }
+                }
+                ui.set_onboarding(false);
+            }
+        }
+    }
+    ui.set_language_index(initial_language);
+    ui.set_theme_index(initial_theme);
+    ui.invoke_edited();
+    ui.invoke_save();
+    wait(events, || !ui.get_busy() && !ui.get_failed())?;
+    ui.set_page(initial_page);
+    ui.set_scroll_y(0.);
+    window.set_size(slint::PhysicalSize::new(1100, 850));
+    pump(events);
+    std::fs::write(
+        folder.join("index.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "files": evidence, "native_windows_created": false, "desktop_input_sent": false,
+            "manual_acceptance": false, "languages": ["ru", "en"], "themes": ["light", "dark"],
+            "sizes": [[1100, 780], [720, 540]], "real_app_components": true
+        }))?,
+    )?;
+    Ok(evidence.len())
+}
+
 pub fn run_review(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     use crate::models_library::View;
     use kavychka_core::{
@@ -347,8 +525,15 @@ pub fn run_review(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     wire(&ui, &backend);
     let latest = Rc::new(std::cell::RefCell::new(None::<service::RuntimeView>));
     let view = latest.clone();
+    let runtime_ui = ui.as_weak();
     ui.on_runtime_update(move |json| {
-        *view.borrow_mut() = serde_json::from_str(json.as_str()).ok();
+        let parsed = serde_json::from_str::<service::RuntimeView>(json.as_str()).ok();
+        if let Some(runtime) = parsed.as_ref()
+            && let Some(ui) = runtime_ui.upgrade()
+        {
+            shell::apply_runtime_status(&ui, runtime);
+        }
+        *view.borrow_mut() = parsed;
     });
     ui.show()?;
     let library = || serde_json::from_str::<View>(ui.get_library_json().as_str()).ok();
@@ -466,6 +651,7 @@ pub fn run_review(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
             .starts_with("2026-01-01")
     );
     render(&window, &output.join("pending-history-en-light.png"))?;
+    let matrix_screenshots = capture_review_matrix(&ui, &window, &events, &output)?;
     let user_cancel = backend.cancellation.clone();
     drop(backend);
     assert!(
@@ -483,10 +669,39 @@ pub fn run_review(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
             .any(|n| n.key == archived.as_str())
     );
     assert!(store.phrases()?.iter().all(|p| p.used_at.is_none()));
+    ui.hide()?;
+    drop(ui);
+    let installer = SetupWindow::new()?;
+    installer.set_version(app_version().into());
+    installer.set_program_path(r"E:\Apps\Kavychka".into());
+    installer.set_data_path(r"E:\Kavychka data".into());
+    installer.set_status("Готово к установке / Ready to install".into());
+    installer.show()?;
+    for dark in [false, true] {
+        installer.set_dark(dark);
+        for (width, height) in [(720, 590), (660, 540)] {
+            window.set_size(slint::PhysicalSize::new(width, height));
+            for advanced in [false, true] {
+                installer.set_advanced(advanced);
+                installer.set_scroll_y(0.);
+                let tag = format!(
+                    "{}-{width}x{height}{}",
+                    if dark { "dark" } else { "light" },
+                    if advanced { "-advanced" } else { "" }
+                );
+                render(&window, &output.join(format!("installer-{tag}.png")))?;
+                if installer.get_scroll_overflow() > 2. {
+                    installer.set_scroll_y(-installer.get_scroll_overflow());
+                    render(&window, &output.join(format!("installer-{tag}-bottom.png")))?;
+                }
+            }
+        }
+    }
+    installer.hide()?;
     std::fs::write(
         output.join("result.json"),
         serde_json::to_vec_pretty(
-            &serde_json::json!({"passed":true,"version":app_version(),"sha256":kavychka_maintenance::digest(&std::env::current_exe()?).map_err(|e|e.to_string())?,"fixture_date":clock(0).date,"rows":store.phrases()?.len(),"page_size":50,"last_today_page_rows":5,"history_preserved":true,"archive_acknowledgement":true,"exercise_disable":true,"combined_fallback":true,"native_desktop_used":false,"audio_played":false,"manual_acceptance":false}),
+            &serde_json::json!({"passed":true,"version":app_version(),"sha256":kavychka_maintenance::digest(&std::env::current_exe()?).map_err(|e|e.to_string())?,"fixture_date":clock(0).date,"rows":store.phrases()?.len(),"page_size":50,"last_today_page_rows":5,"history_preserved":true,"archive_acknowledgement":true,"exercise_disable":true,"combined_fallback":true,"native_desktop_used":false,"audio_played":false,"manual_acceptance":false,"matrix_screenshots":matrix_screenshots}),
         )?,
     )?;
     Ok(())
@@ -610,7 +825,7 @@ fn run_impl(
             });
             window.set_size(slint::PhysicalSize::new(
                 (720. * scale) as u32,
-                (480. * scale) as u32,
+                (540. * scale) as u32,
             ));
             for language in 0..2 {
                 for theme in [1, 2] {
@@ -650,7 +865,7 @@ fn run_impl(
     }
     render(&window, &output.join("overview-light.png"))?;
     for page in 0..8 {
-        click(&ui, 100., 134. + page as f32 * 46.);
+        click(&ui, 100., 86. + page as f32 * 36.);
         if ui.get_page() != page {
             return Err(format!("navigation click failed for {page}").into());
         }
@@ -662,7 +877,7 @@ fn run_impl(
         });
         window.set_size(slint::PhysicalSize::new(
             (720. * scale) as u32,
-            (480. * scale) as u32,
+            (540. * scale) as u32,
         ));
         for language in 0..2 {
             for theme in [1, 2] {
@@ -690,7 +905,7 @@ fn run_impl(
         .dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1. });
     window.set_size(slint::PhysicalSize::new(1100, 780));
     // Keyboard activation of custom navigation must work as well as pointer clicks.
-    click(&ui, 100., 180.);
+    click(&ui, 100., 122.);
     ui.set_page(0);
     ui.window()
         .dispatch_event(WindowEvent::KeyPressed { text: " ".into() });
@@ -770,7 +985,7 @@ fn run_impl(
     }
     ui.invoke_discard();
     wait(&events, || !ui.get_busy())?;
-    click(&ui, 100., 180.); // Focus a known initiating item before the close request.
+    click(&ui, 100., 122.); // Focus a known initiating item before the close request.
     ui.invoke_edited();
     ui.invoke_quit();
     if !ui.get_confirm_close() || quit.load(Ordering::Relaxed) {

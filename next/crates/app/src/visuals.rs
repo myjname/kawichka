@@ -4,13 +4,52 @@ use std::path::Path;
 pub struct Frames {
     pub frames: Vec<(image::RgbaImage, u32)>,
     pub atlas: bool,
+    /// Pixel sprites use a physical-pixel grid; regular artwork stays smooth.
+    pub pixelated: bool,
 }
-fn small(image: image::RgbaImage) -> image::RgbaImage {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Placement {
+    pub left: u32,
+    pub top: u32,
+    pub width: u32,
+    pub height: u32,
+}
+fn small(image: image::RgbaImage, pixelated: bool) -> image::RgbaImage {
     if image.width() > 520 || image.height() > 520 {
-        image::imageops::thumbnail(&image, 520, 520)
+        if pixelated {
+            let ratio = (520. / image.width() as f64).min(520. / image.height() as f64);
+            image::imageops::resize(
+                &image,
+                (image.width() as f64 * ratio).round().max(1.) as u32,
+                (image.height() as f64 * ratio).round().max(1.) as u32,
+                image::imageops::FilterType::Nearest,
+            )
+        } else {
+            image::imageops::thumbnail(&image, 520, 520)
+        }
     } else {
         image
     }
+}
+fn is_pixel_art(frames: &[(image::RgbaImage, u32)]) -> bool {
+    let mut colors = std::collections::HashSet::with_capacity(65);
+    for (image, _) in frames {
+        if image.width() > 256 || image.height() > 256 {
+            return false;
+        }
+        for pixel in image.pixels() {
+            if pixel.0[3] != 0 && pixel.0[3] != 255 {
+                return false;
+            }
+            if pixel.0[3] != 0 {
+                colors.insert(pixel.0);
+                if colors.len() > 64 {
+                    return false;
+                }
+            }
+        }
+    }
+    !colors.is_empty()
 }
 pub fn validate(path: &Path, layout: &str) -> Result<(), String> {
     load(path, layout).map(|_| ())
@@ -40,9 +79,11 @@ pub fn load(path: &Path, layout: &str) -> Result<Frames, String> {
                 frames.push((img.view(x * 192, y * 208, 192, 208).to_image(), 140));
             }
         }
+        let pixelated = is_pixel_art(&frames);
         return Ok(Frames {
             frames,
             atlas: true,
+            pixelated,
         });
     }
     if path
@@ -63,23 +104,96 @@ pub fn load(path: &Path, layout: &str) -> Result<Frames, String> {
             if frames.len() >= 300 || pixels > 40_000_000 {
                 return Err("Animation exceeds 300 frames / 40 million decoded pixels".into());
             }
-            frames.push((small(img), (n / d.max(1)).clamp(20, 10000)));
+            frames.push((
+                small(img, layout == "pixel"),
+                (n / d.max(1)).clamp(20, 10000),
+            ));
         }
         if frames.is_empty() {
             return Err("Empty animation".into());
         }
+        let pixelated = layout == "pixel" || layout != "smooth" && is_pixel_art(&frames);
         return Ok(Frames {
             frames,
             atlas: false,
+            pixelated,
         });
     }
     let img = image::open(path).map_err(|e| e.to_string())?.to_rgba8();
+    let frames = vec![(small(img, layout == "pixel"), 1000)];
+    let pixelated = layout == "pixel" || layout != "smooth" && is_pixel_art(&frames);
     Ok(Frames {
-        frames: vec![(small(img), 1000)],
+        frames,
         atlas: false,
+        pixelated,
     })
 }
 impl Frames {
+    fn raster(&self, index: usize, placement: Placement) -> image::RgbaImage {
+        image::imageops::resize(
+            &self.frames[index].0,
+            placement.width,
+            placement.height,
+            if self.pixelated {
+                image::imageops::FilterType::Nearest
+            } else {
+                image::imageops::FilterType::Triangle
+            },
+        )
+    }
+    /// Pre-scale pixel sprites into physical pixels, so Slint displays a 1:1
+    /// texture instead of shifting alpha edges with a second nearest sampler.
+    /// Regular artwork retains Slint's original premultiplied smooth filter.
+    pub fn image_at(&self, index: usize, placement: Placement) -> slint::Image {
+        if placement.width == 0 || placement.height == 0 {
+            return slint::Image::default();
+        }
+        let scaled;
+        let img = if self.pixelated {
+            scaled = self.raster(index, placement);
+            &scaled
+        } else {
+            &self.frames[index].0
+        };
+        let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+            img.as_raw(),
+            img.width(),
+            img.height(),
+        );
+        slint::Image::from_rgba8(buffer)
+    }
+    /// The visible rectangle and the native click mask share this geometry.
+    /// Integer upscaling avoids alternating pixel widths at fractional DPI.
+    pub fn placement(&self, index: usize, width: u32, height: u32, scale: f32) -> Placement {
+        let empty = Placement {
+            left: 0,
+            top: 0,
+            width: 0,
+            height: 0,
+        };
+        let Some((image, _)) = self.frames.get(index) else {
+            return empty;
+        };
+        if width > 4096 || height > 4096 || !scale.is_finite() || scale <= 0. {
+            return empty;
+        }
+        let margin = (8. * scale).round() as u32;
+        let available_w = width.saturating_sub(margin.saturating_mul(2));
+        let available_h = height.saturating_sub(margin.saturating_mul(2));
+        let mut ratio = (available_w as f64 / image.width() as f64)
+            .min(available_h as f64 / image.height() as f64);
+        if self.pixelated && ratio >= 1. {
+            ratio = ratio.floor();
+        }
+        let w = (image.width() as f64 * ratio).round() as u32;
+        let h = (image.height() as f64 * ratio).round() as u32;
+        Placement {
+            left: width.saturating_sub(w) / 2,
+            top: height.saturating_sub(h) / 2,
+            width: w,
+            height: h,
+        }
+    }
     /// Exact contain geometry used by PetWindow. Alpha < 8 is click-through,
     /// including holes; never union frames (that would fill animated holes).
     pub fn hit_spans(
@@ -94,27 +208,25 @@ impl Frames {
         if width > 4096 || height > 4096 {
             return vec![];
         }
-        let margin = 8. * scale;
-        let available_w = (width as f32 - 2. * margin).max(0.);
-        let available_h = (height as f32 - 2. * margin).max(0.);
-        let image = &self.frames[index].0;
-        let ratio = (available_w / image.width() as f32).min(available_h / image.height() as f32);
-        let w = (image.width() as f32 * ratio).round() as u32;
-        let h = (image.height() as f32 * ratio).round() as u32;
+        let placement = self.placement(index, width, height, scale);
+        let w = placement.width;
+        let h = placement.height;
         if w == 0 || h == 0 {
             return vec![];
         }
-        let img = image::imageops::resize(image, w, h, image::imageops::FilterType::Triangle);
-        let left = ((width - w) / 2) as i32;
-        let top = ((height - h) / 2) as i32;
+        let img = self.raster(index, placement);
+        let left = placement.left as i32;
+        let top = placement.top as i32;
         // Rasterize controls into the same row runs: sorted, disjoint spans
         // let Windows build the entire native region in one bounded call.
         let rect = |x: f32, y: f32, w: f32, h: f32| {
+            let available_w = (width as f32 - 16. * scale).max(0.);
+            let available_h = (height as f32 - 16. * scale).max(0.);
             [
-                ((8. + x) * scale).round() as i32,
-                ((8. + y) * scale).round() as i32,
-                (((8. + x + w) * scale).round() as i32).min(width as i32),
-                (((8. + y + h) * scale).round() as i32).min(height as i32),
+                (8. * scale + x * available_w / 100.).floor() as i32,
+                (8. * scale + y * available_h / 100.).floor() as i32,
+                (8. * scale + (x + w) * available_w / 100.).ceil() as i32,
+                (8. * scale + (y + h) * available_h / 100.).ceil() as i32,
             ]
         };
         let mut controls = vec![];
@@ -206,15 +318,6 @@ impl Frames {
             index
         }
     }
-    pub fn image(&self, index: usize) -> slint::Image {
-        let img = &self.frames[index].0;
-        let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-            img.as_raw(),
-            img.width(),
-            img.height(),
-        );
-        slint::Image::from_rgba8(buffer)
-    }
 }
 
 #[cfg(test)]
@@ -242,6 +345,7 @@ mod tests {
         let f = Frames {
             frames: vec![(img, 100)],
             atlas: false,
+            pixelated: false,
         };
         for scale in [1., 1.5, 2.] {
             let size = (116. * scale) as u32;
@@ -266,6 +370,7 @@ mod tests {
                 ),
             ],
             atlas: false,
+            pixelated: false,
         };
         assert!(f.hit_spans(0, 116, 116, false, false, 1.).is_empty());
         assert!(!contains(
@@ -281,5 +386,119 @@ mod tests {
         assert!(contains(&f.hit_spans(0, 116, 116, false, true, 1.), 80, 85));
         assert!(contains(&f.hit_spans(0, 116, 116, true, false, 1.), 23, 30));
         assert!(f.hit_spans(0, 5000, 116, false, false, 1.).is_empty());
+    }
+    #[test]
+    fn pixel_geometry_preserves_integer_blocks_and_mask_for_all_sizes_and_dpi() {
+        let image = image::RgbaImage::from_fn(64, 64, |x, y| {
+            image::Rgba(
+                if x < 4
+                    || y < 4
+                    || x > 59
+                    || y > 59
+                    || (24..40).contains(&x) && (24..40).contains(&y)
+                {
+                    [0, 0, 0, 0]
+                } else if x % 2 == 0 {
+                    [230, 30, 80, 255]
+                } else {
+                    [100, 170, 240, 255]
+                },
+            )
+        });
+        let f = Frames {
+            frames: vec![(image, 100)],
+            atlas: false,
+            pixelated: true,
+        };
+        for scale in [1., 1.25, 1.5, 1.75, 2.] {
+            for logical_size in 80..=260 {
+                let physical = (logical_size as f32 * scale).round() as u32;
+                let p = f.placement(0, physical, physical, scale);
+                assert_eq!(p.width, p.height);
+                assert_eq!(p.width % 64, 0);
+                assert_eq!(p.height % 64, 0);
+                assert!(p.width >= 64);
+                assert!(p.left + p.width <= physical);
+                assert!(p.top + p.height <= physical);
+                let spans = f.hit_spans(0, physical, physical, false, false, scale);
+                let factor = p.width / 64;
+                for (x, y) in [(0, 0), (12, 12), (32, 32), (63, 63), (50, 50)] {
+                    let expected = f.frames[0].0.get_pixel(x, y).0[3] >= 8;
+                    for dy in 0..factor {
+                        for dx in 0..factor {
+                            assert_eq!(
+                                contains(
+                                    &spans,
+                                    (p.left + x * factor + dx) as i32,
+                                    (p.top + y * factor + dy) as i32
+                                ),
+                                expected
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn pixel_detection_and_explicit_overrides_preserve_regular_artwork() {
+        let sprite = image::RgbaImage::from_fn(64, 64, |x, y| {
+            image::Rgba(if x == y {
+                [240, 50, 70, 255]
+            } else {
+                [0, 0, 0, 0]
+            })
+        });
+        assert!(is_pixel_art(&[(sprite.clone(), 100)]));
+        let art = image::RgbaImage::from_fn(64, 64, |x, y| image::Rgba([x as u8, y as u8, 0, 255]));
+        assert!(!is_pixel_art(&[(art, 100)]));
+        assert!(!is_pixel_art(&[(
+            image::RgbaImage::from_pixel(64, 64, image::Rgba([20, 30, 40, 100])),
+            100
+        )]));
+        let t = tempfile::tempdir().unwrap();
+        let file = t.path().join("sprite.png");
+        sprite.save(&file).unwrap();
+        assert!(load(&file, "auto").unwrap().pixelated);
+        assert!(load(&file, "image").unwrap().pixelated);
+        assert!(load(&file, "pixel").unwrap().pixelated);
+        assert!(!load(&file, "smooth").unwrap().pixelated);
+        assert_eq!(load(&file, "image").unwrap().frames[0].0, sprite);
+        let f = load(&file, "smooth").unwrap();
+        let p = f.placement(0, 130, 110, 1.25);
+        assert_eq!(p.width, p.height);
+        assert_eq!(p.height, 90);
+        assert!(f.placement(0, 100, 100, f32::NAN).width == 0);
+    }
+    #[test]
+    fn existing_codex_atlas_still_decodes_its_animation_rows() {
+        let t = tempfile::tempdir().unwrap();
+        let path = t.path().join("atlas.png");
+        image::RgbaImage::from_fn(1536, 1872, |x, y| {
+            image::Rgba([(x / 192) as u8, (y / 208) as u8, 10, 255])
+        })
+        .save(&path)
+        .unwrap();
+        for layout in ["auto", "codex"] {
+            let f = load(&path, layout).unwrap();
+            assert!(f.atlas && !f.pixelated);
+            assert_eq!(f.frames.len(), 72);
+            assert_eq!(f.frames[71].0.dimensions(), (192, 208));
+            assert_eq!(f.frames[71].0.get_pixel(0, 0).0, [7, 8, 10, 255]);
+            assert_eq!(f.index(0, true, false, false, false), 0);
+            assert_eq!(f.index(420, false, true, false, false), 27);
+            assert_eq!(f.index(560, false, false, false, true), 36);
+            assert_eq!(f.index(700, false, false, true, false), 69);
+        }
+        image::RgbaImage::from_fn(1536, 1872, |x, _| {
+            image::Rgba(if x % 2 == 0 {
+                [20, 50, 80, 255]
+            } else {
+                [40, 60, 100, 255]
+            })
+        })
+        .save(&path)
+        .unwrap();
+        assert!(load(&path, "codex").unwrap().pixelated);
     }
 }

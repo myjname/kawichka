@@ -237,6 +237,159 @@ fn full_profile_restores_settings_history_presets_audio_and_claims_without_touch
 }
 
 #[test]
+fn complete_character_keeps_all_components_through_profile_backup_and_restore() {
+    let dir = temp();
+    let (mut source, _) = source(dir.path());
+    let media = dir.path().join("pack-media");
+    fs::create_dir(&media).unwrap();
+    fs::write(media.join("reference.wav"), wave(3)).unwrap();
+    fs::write(media.join("pet.gif"), b"GIF89a prepared metadata fixture").unwrap();
+    let voice = presets::import_prepared(
+        &source.root,
+        &presets::Preset {
+            version: 1,
+            name: "Voice fixture".into(),
+            content: presets::Content::Voice {
+                references: vec![presets::Reference {
+                    file: "reference.wav".into(),
+                    transcript: "Prepared reference.".into(),
+                }],
+            },
+        },
+        Some(&media),
+    )
+    .unwrap();
+    let visual = presets::import_prepared(
+        &source.root,
+        &presets::Preset {
+            version: 1,
+            name: "Appearance fixture".into(),
+            content: presets::Content::Visual {
+                file: "pet.gif".into(),
+                layout: "pixel".into(),
+            },
+        },
+        Some(&media),
+    )
+    .unwrap();
+    let mut p = source.load().unwrap();
+    p.generation.voice_profile = voice;
+    p.desktop.visual_preset = visual;
+    p.generation.character_description = "Portable complete character.".into();
+    let pack = presets::save_current_pack(&source.root, "Complete fixture".into(), &p).unwrap();
+    p.desktop.character_preset = pack.clone();
+    p.generation.voice_profile = pack.clone();
+    p.desktop.visual_preset = pack.clone();
+    source.save(&p).unwrap();
+    let original = presets::read(&source.root, &pack).unwrap();
+    let before = tree_hash(&source.root);
+    let zip = exported(&source, dir.path(), ExportOptions::default());
+    let mut target = Sandbox::open(&dir.path().join("target")).unwrap();
+    let mut plan = RestorePlan::prepare(
+        &target,
+        inspected(&zip, dir.path()),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    plan.prepare_files(
+        CaptureSource::new(&target).unwrap(),
+        "0.1.31",
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    plan.apply(&mut target, &AtomicBool::new(false)).unwrap();
+    let restored = target.load().unwrap();
+    assert_eq!(restored.desktop.character_preset, pack);
+    assert_eq!(restored.generation.voice_profile, pack);
+    assert_eq!(restored.desktop.visual_preset, pack);
+    assert_eq!(
+        serde_json::to_value(p).unwrap(),
+        serde_json::to_value(restored).unwrap()
+    );
+    let actual = presets::read(&target.root, &pack).unwrap();
+    assert_eq!(
+        serde_json::to_value(&original).unwrap(),
+        serde_json::to_value(actual).unwrap()
+    );
+    for file in original.files() {
+        assert_eq!(
+            fs::read(presets::folder(&source.root, &pack).unwrap().join(file)).unwrap(),
+            fs::read(presets::folder(&target.root, &pack).unwrap().join(file)).unwrap()
+        );
+    }
+    assert_eq!(before, tree_hash(&source.root));
+    // A different local character using the same ID must keep its settings;
+    // the incoming self-contained package is remapped without broken links.
+    let mut occupied = Sandbox::open(&dir.path().join("occupied")).unwrap();
+    let destination = presets::folder(&occupied.root, &pack).unwrap();
+    fs::create_dir(&destination).unwrap();
+    for file in original.files() {
+        fs::copy(
+            presets::folder(&source.root, &pack).unwrap().join(file),
+            destination.join(file),
+        )
+        .unwrap();
+    }
+    fs::copy(
+        presets::folder(&source.root, &pack)
+            .unwrap()
+            .join("preset.json"),
+        destination.join("preset.json"),
+    )
+    .unwrap();
+    let mut local = presets::read(&occupied.root, &pack).unwrap();
+    local.name = "Local character kept".into();
+    presets::update(&occupied.root, &pack, &local).unwrap();
+    let mut chosen = occupied.load().unwrap();
+    chosen.user_name = "Existing profile".into();
+    chosen.desktop.character_preset = pack.clone();
+    chosen.generation.voice_profile = pack.clone();
+    chosen.desktop.visual_preset = pack.clone();
+    occupied.save(&chosen).unwrap();
+    let wanted = serde_json::to_value(chosen).unwrap();
+    let mut plan = RestorePlan::prepare(
+        &occupied,
+        inspected(&zip, dir.path()),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert!(!plan.summary().clean_profile);
+    plan.prepare_files(
+        CaptureSource::new(&occupied).unwrap(),
+        "0.1.31",
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    plan.apply(&mut occupied, &AtomicBool::new(false)).unwrap();
+    assert_eq!(
+        serde_json::to_value(occupied.load().unwrap()).unwrap(),
+        wanted
+    );
+    assert_eq!(
+        presets::read(&occupied.root, &pack).unwrap().name,
+        "Local character kept"
+    );
+    let imported = presets::list(&occupied.root)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.id != pack && e.preset.name == original.name)
+        .unwrap();
+    for file in imported.preset.files() {
+        assert_eq!(
+            fs::read(presets::folder(&source.root, &pack).unwrap().join(file)).unwrap(),
+            fs::read(
+                presets::folder(&occupied.root, &imported.id)
+                    .unwrap()
+                    .join(file)
+            )
+            .unwrap()
+        );
+    }
+}
+
+#[test]
 fn automatic_first_launch_checkpoint_is_still_a_clean_profile_but_user_changes_are_not() {
     let dir = temp();
     let (source, _) = source(dir.path());
@@ -632,6 +785,47 @@ fn rewrite_zip(source: &Path, dest: &Path, edit: impl FnOnce(&mut serde_json::Va
     }
     z.finish().unwrap();
 }
+#[test]
+fn character_archives_are_identified_before_inspection_job_or_profile_changes() {
+    let dir = temp();
+    let (current, _) = source(dir.path());
+    let before = tree_hash(&current.root);
+    let original_prefs = serde_json::to_value(current.load().unwrap()).unwrap();
+    let original_rows = serde_json::to_value(current.phrases().unwrap()).unwrap();
+    for (case, entry) in [
+        ("single", "preset.json"),
+        ("collection", "parts/component.KAVYCHKA"),
+    ] {
+        let archive = dir.path().join(format!("character-{case}.zip"));
+        let mut zip = zip::ZipWriter::new(fs::File::create(&archive).unwrap());
+        zip.start_file(entry, zip::write::FileOptions::default())
+            .unwrap();
+        zip.write_all(b"not extracted or interpreted here").unwrap();
+        zip.finish().unwrap();
+        let job = current.root.join("jobs").join(format!("inspect-{case}"));
+        let result = inspect(
+            &archive,
+            &job,
+            2_000_000_000,
+            &AtomicBool::new(false),
+            |_| panic!("wrong archive must not reach extraction"),
+        );
+        assert!(
+            matches!(result, Err(Error::Invalid(message)) if message == "character preset archive; import in Character after setup")
+        );
+        assert!(!job.exists());
+        assert_eq!(tree_hash(&current.root), before);
+    }
+    assert_eq!(
+        serde_json::to_value(current.load().unwrap()).unwrap(),
+        original_prefs
+    );
+    assert_eq!(
+        serde_json::to_value(current.phrases().unwrap()).unwrap(),
+        original_rows
+    );
+}
+
 #[test]
 fn wrong_hash_future_format_and_traversal_are_rejected_before_any_target_profile_change() {
     let dir = temp();

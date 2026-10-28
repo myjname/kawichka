@@ -189,9 +189,9 @@ fn window(root: PathBuf, local: PathBuf, qa: Option<(bool, PathBuf)>) -> Result<
                 let en=ui.get_english();
                 let decision=match (en,plan.full){(true,true)=>"Program AND ALL owned shared storage will be removed, including models and recordings.",(false,true)=>"Удалятся программа И ВСЁ собственное общее хранилище, включая модели и записи.",(true,false)=>"Program removed. Settings, models, recordings and locator retained for reinstall.",(false,false)=>"Удалится программа. Настройки, модели, записи и указатель сохранятся для переустановки."};
                 let storage=match (en,plan.full){(true,true)=>"Removing",(true,false)=>"Keeping",(false,true)=>"Удаляется",(false,false)=>"Сохраняется"};
-                let external=plan.external_paths_retained.iter().map(|p|p.display().to_string()).collect::<Vec<_>>().join("\n");
+                let external=plan.external_paths_retained.iter().map(|p|crate::display_path::display(p)).collect::<Vec<_>>().join("\n");
                 let files=if en{"files"}else{"файлов"};let retained=if en{"External paths retained"}else{"Внешние пути сохраняются"};let warning=if en{"Full removal is irreversible. Export a profile first."}else{"Полное удаление необратимо. Экспортируй профиль заранее."};
-                ui.set_summary(format!("{decision}\n{}\n{} {files}; {:.1} MB\n\n{storage}: {}\n{retained}:\n{external}\n\n{warning}",plan.program.display(),plan.files.len(),plan.bytes as f64/1e6,plan.common.display()).into());
+                ui.set_summary(format!("{decision}\n{}\n{} {files}; {:.1} MB\n\n{storage}: {}\n{retained}:\n{external}\n\n{warning}",crate::display_path::display(&plan.program),plan.files.len(),plan.bytes as f64/1e6,crate::display_path::display(&plan.common)).into());
                 ui.set_reviewed(plan.full==ui.get_full());*p.borrow_mut()=Some(plan);
             }
             Event::Preview(Err(error))|Event::Removed(Err(error))=>{ui.set_summary(format!("Не выполнено / Failed: {error}\nДанные не скрываются новой пустой библиотекой. При частичном удалении программы запусти установщик повторно. / If program removal was interrupted, run setup again.").into());}

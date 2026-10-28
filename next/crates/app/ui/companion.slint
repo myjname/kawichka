@@ -1,6 +1,6 @@
 import { Button, Palette } from "std-widgets.slint";
 export component PetWindow inherits Window {
-    title: "Kavychka · companion"; width: 116px; height: 116px;
+    title: "Kavychka · companion"; preferred-width: 116px; preferred-height: 116px;
     no-frame: true; always-on-top: true; background: transparent;
     in property <bool> dark;
     in property <bool> paused;
@@ -11,6 +11,11 @@ export component PetWindow inherits Window {
     in property <bool> english;
     in property <image> custom-image;
     in property <bool> custom-visual;
+    in property <bool> custom-pixelated;
+    in property <length> custom-left: 8px;
+    in property <length> custom-top: 8px;
+    in property <length> custom-width: root.width - 16px;
+    in property <length> custom-height: root.height - 16px;
     callback open-settings;
     callback review;
     callback pause-minutes(int);
@@ -23,16 +28,17 @@ export component PetWindow inherits Window {
     Rectangle {
         x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; border-radius: 26px;
         background: root.custom-visual ? transparent : (root.dark ? #282d3a : #edf0fc); border-width: root.custom-visual ? 0px : 1px; border-color: root.dark ? #41495f : #d8dff5;
-        Image { x: root.custom-visual ? 0px : 8px; y: root.custom-visual ? 0px : (root.attention ? 4px : 8px); width: parent.width - (root.custom-visual ? 0px : 16px); height: parent.height - (root.custom-visual ? 0px : 20px); image-fit: contain; source: root.custom-visual ? root.custom-image : @image-url("../../design-preview/ui/quote.svg"); }
+        Image { x: root.custom-visual ? root.custom-left - 8px : 8px; y: root.custom-visual ? root.custom-top - 8px : (root.attention ? 4px : 8px); width: root.custom-visual ? root.custom-width : parent.width - 16px; height: root.custom-visual ? root.custom-height : parent.height - 20px; image-fit: contain; image-rendering: root.custom-visual && root.custom-pixelated ? pixelated : smooth; source: root.custom-visual ? root.custom-image : @image-url("../../design-preview/ui/quote.svg"); }
         if root.blink && !root.custom-visual : Rectangle { x: 29px; y: root.attention ? 25px : 29px; width: 7px; height: 7px; background: #637ad1; Rectangle { y: 4px; height: 1px; width: parent.width; background: white; } }
         if root.blink && !root.custom-visual : Rectangle { x: 63px; y: root.attention ? 25px : 29px; width: 7px; height: 7px; background: #637ad1; Rectangle { y: 4px; height: 1px; width: parent.width; background: white; } }
         if root.paused : Rectangle {
-            for i in 4 : Rectangle { x: 14px + i*23px; y: 10px; width: 3px; height: 66px; background: root.dark ? #8e97ae : #9099ae; }
-            Text { x: 3px; y: 77px; width: 94px; height: 19px; text: root.countdown; horizontal-alignment: center; vertical-alignment: center; color: root.dark ? #f1f2f6 : #242837; font-size: 11px; font-family: "Segoe UI"; }
+            width: parent.width; height: parent.height;
+            for i in 4 : Rectangle { x: parent.width * (0.14 + i * 0.23); y: parent.height * 0.10; width: parent.width * 0.03; height: parent.height * 0.66; background: root.dark ? #8e97ae : #9099ae; }
+            Text { x: parent.width * 0.03; y: parent.height * 0.77; width: parent.width * 0.94; height: parent.height * 0.19; text: root.countdown; horizontal-alignment: center; vertical-alignment: center; color: root.dark ? #f1f2f6 : #242837; font-size: min(16px, max(9px, parent.height * 0.11)); font-family: "Segoe UI"; }
         }
         if !root.paused && root.pending > 0 : Rectangle {
-            x: 68px; y: 73px; width: 25px; height: 22px; border-radius: 10px; background: #5369c9;
-            Text { text: root.pending; color: white; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; }
+            x: parent.width * 0.68; y: parent.height * 0.73; width: parent.width * 0.25; height: parent.height * 0.22; border-radius: self.height / 2; background: #5369c9;
+            Text { text: root.pending; color: white; horizontal-alignment: center; vertical-alignment: center; font-size: min(16px, max(9px, parent.height * 0.5)); }
         }
         TouchArea {
             pointer-event(event) => { if (event.button == PointerEventButton.left) { if(event.kind == PointerEventKind.down) { root.drag-start(); } if(event.kind == PointerEventKind.up) { root.drag-end(); } } }
