@@ -163,6 +163,8 @@ fn update_accepts_the_same_storage_with_either_windows_prefix_and_rejects_other_
         apply(&root, next, &v2, |_, _| Ok(())).unwrap();
         let updated = current(&root).unwrap().unwrap();
         assert_eq!(updated.version, "0.2.0");
+        assert_eq!(updated.common, old.common);
+        assert_eq!(updated.data, old.data);
         assert_eq!(updated.common.canonicalize().unwrap(), canonical);
         {
             let s = kavychka_storage::sandbox::Sandbox::open(&updated.data).unwrap();

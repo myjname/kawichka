@@ -605,6 +605,9 @@ pub fn apply_with_source(
             return Err("update must be newer; use explicit rollback for an older version".into());
         }
     }
+    // Accept equivalent input spelling without rewriting the journal's data root.
+    // Recovery requires previous/candidate data paths to retain the same identity.
+    let common = old.as_ref().map_or(common, |old| old.common.as_path());
     if initially_empty_common {
         fs::create_dir_all(common)?;
         let marker = common.join("storage-owner.json");
