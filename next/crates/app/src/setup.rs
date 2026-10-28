@@ -425,7 +425,7 @@ fn show(exe: PathBuf) -> Result<()> {
         kavychka_storage::location::resolve(&local)?
     };
     if let Some(portable) = &portable
-        && (root != portable.join("program") || common != portable.join("data"))
+        && !kavychka_maintenance::portable::matches_layout(portable, &root, &common)
     {
         return Err("Portable program/data layout mismatch".into());
     }

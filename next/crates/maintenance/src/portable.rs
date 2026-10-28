@@ -15,6 +15,20 @@ struct State {
 pub fn is_portable(root: &Path) -> bool {
     fs::read(root.join("portable.owner")).is_ok_and(|b| b == OWNER)
 }
+/// Match the exact owned directories across ordinary and verbatim Windows paths.
+/// This also works before first installation, when program/data do not exist yet.
+/// Ownership and reparse-point checks remain part of the installation transaction.
+pub fn matches_layout(root: &Path, program: &Path, common: &Path) -> bool {
+    root.is_absolute()
+        && program.is_absolute()
+        && common.is_absolute()
+        && [(program, "program"), (common, "data")]
+            .into_iter()
+            .all(|(path, directory)| {
+                kavychka_storage::transfer::owned_tail(path, &root.join(directory))
+                    .is_some_and(|tail| tail.as_os_str().is_empty())
+            })
+}
 pub fn create(setup: &Path, launcher: &Path, target: &Path) -> Result<()> {
     package::manifest(setup)?;
     kavychka_storage::preview::no_link_chain(target)?;
@@ -159,4 +173,99 @@ pub fn prepare(
         install::apply(&program, &common, &root.join("setup.exe"), probe)?;
     }
     Ok(program)
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn exact_layout_accepts_missing_directories_but_rejects_other_targets() {
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let program = root.join("program");
+        let data = root.join("data");
+        assert!(!program.exists() && !data.exists());
+        assert!(matches_layout(root, &program, &data));
+        for wrong in [
+            root.join("program-other"),
+            program.join("child"),
+            root.to_path_buf(),
+            PathBuf::from("program"),
+        ] {
+            assert!(!matches_layout(root, &wrong, &data));
+        }
+        for wrong in [
+            root.join("data-other"),
+            data.join("child"),
+            root.to_path_buf(),
+            PathBuf::from("data"),
+        ] {
+            assert!(!matches_layout(root, &program, &wrong));
+        }
+        assert!(!matches_layout(Path::new("."), &program, &data));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn old_portable_launcher_context_accepts_both_drive_prefix_forms() {
+        let roots = [
+            Path::new(r"E:\Кавычка portable"),
+            Path::new(r"\\?\E:\Кавычка portable"),
+        ];
+        let programs = [
+            Path::new(r"E:\Кавычка portable\program"),
+            Path::new(r"\\?\E:\Кавычка portable\program"),
+            Path::new(r"e:\КАВЫЧКА PORTABLE\PROGRAM"),
+        ];
+        let data = [
+            Path::new(r"E:\Кавычка portable\data"),
+            Path::new(r"\\?\E:\Кавычка portable\data"),
+            Path::new(r"e:\КАВЫЧКА PORTABLE\DATA"),
+        ];
+        for root in roots {
+            for program in programs {
+                for common in data {
+                    assert!(matches_layout(root, program, common));
+                }
+            }
+            assert!(!matches_layout(
+                root,
+                Path::new(r"F:\Кавычка portable\program"),
+                data[0]
+            ));
+            assert!(!matches_layout(
+                root,
+                programs[0],
+                Path::new(r"E:\Кавычка portable-other\data")
+            ));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unc_layout_accepts_verbatim_prefix_but_not_another_share() {
+        let roots = [
+            Path::new(r"\\server\share\Кавычка"),
+            Path::new(r"\\?\UNC\server\share\Кавычка"),
+        ];
+        for root in roots {
+            for program in [
+                Path::new(r"\\SERVER\SHARE\Кавычка\program"),
+                Path::new(r"\\?\UNC\server\share\Кавычка\program"),
+            ] {
+                for common in [
+                    Path::new(r"\\server\share\Кавычка\data"),
+                    Path::new(r"\\?\UNC\server\share\Кавычка\data"),
+                ] {
+                    assert!(matches_layout(root, program, common));
+                }
+                assert!(!matches_layout(
+                    root,
+                    program,
+                    Path::new(r"\\server\share-other\Кавычка\data")
+                ));
+            }
+        }
+    }
 }
