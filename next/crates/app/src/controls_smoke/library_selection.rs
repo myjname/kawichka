@@ -87,6 +87,16 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     })?;
     render(&window, &output.join("current-top.png"))?;
     verify_details_overlay(&ui, &window, &events, &output, "current")?;
+    let before_double_click = crate::library_actions::selection(&ui).revision;
+    click(&ui, 232., 184.);
+    click(&ui, 232., 184.);
+    if crate::library_actions::selection(&ui).revision == before_double_click {
+        return Err("rapid All double click did not cancel the pending selection".into());
+    }
+    pump(&events);
+    if ui.get_library_selected_count() != 0 {
+        return Err("cancelled All double click selected phrases".into());
+    }
     click(&ui, 232., 230.);
     wait(&events, "row checkbox pointer selection", || {
         ui.get_library_selected_count() == 1

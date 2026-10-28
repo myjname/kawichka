@@ -3334,7 +3334,7 @@ export component AppWindow inherits Window {
                         }
                         HorizontalLayout {
                             spacing:6px; alignment:start; vertical-stretch:0;
-                            CheckBox {text:root.english ? "All" : "Все";checked:root.library-all-selected;accessible-label:root.english ? "Select all phrases in this category, across pages" : "Выбрать все фразы категории на всех страницах";toggled=>{self.focus();root.select-all-library(!root.library-all-selected);}}
+                            CheckBox {text:root.english ? "All" : "Все";checked:root.library-all-selected;accessible-label:root.english ? "Select all phrases in this category, across pages" : "Выбрать все фразы категории на всех страницах";toggled=>{self.focus();root.select-all-library(self.checked);}}
                             Label {text:(root.english ? "Selected: " : "Выбрано: ")+root.library-selected-count;min-width:100px;vertical-alignment:center;font-size:12px;}
                             if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/play.svg");tip:root.english ? "Listen: select one phrase" : "Прослушать: выбери одну фразу";enabled:root.library-selected-count==1;clicked=>{root.library-action("play");}}
                             if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/check.svg");tip:root.english ? "Keep selected for reminders" : "Оставить выделенные для напоминаний";enabled:root.library-selected-count>0 && !root.generation-running;clicked=>{root.library-action("keep");}}
