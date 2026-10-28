@@ -10,6 +10,7 @@ use std::collections::BTreeSet;
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Selection {
+    pub revision: u64,
     pub group: String,
     pub day: String,
     pub ids: BTreeSet<String>,
@@ -46,6 +47,7 @@ pub fn selection(ui: &AppWindow) -> Selection {
         serde_json::from_str(ui.get_library_selection().as_str()).unwrap_or_default();
     if s.group != group(ui) || s.day != ui.get_library_day().as_str() {
         s = Selection {
+            revision: s.revision,
             group: group(ui).into(),
             day: ui.get_library_day().to_string(),
             ids: Default::default(),
@@ -59,8 +61,10 @@ fn redraw(ui: &AppWindow) {
     }
 }
 fn set(ui: &AppWindow, s: &Selection) {
+    let mut s = s.clone();
+    s.revision = selection(ui).revision.wrapping_add(1);
     ui.set_library_selection(
-        serde_json::to_string(s)
+        serde_json::to_string(&s)
             .expect("selection serializes")
             .into(),
     );
@@ -102,17 +106,39 @@ pub fn decorate(ui: &AppWindow, items: Vec<LibraryItem>) -> Vec<LibraryItem> {
         ui.get_library_history_count()
     };
     ui.set_library_all_selected(total > 0 && s.ids.len() == total as usize);
-    ui.set_support_items(slint::ModelRc::new(slint::VecModel::from(
-        ui.get_support_texts()
-            .iter()
-            .map(|text| LibraryItem {
-                identifier: text.clone(),
-                text: text.clone(),
-                selected: s.group == "support" && s.ids.contains(text.as_str()),
-                ..Default::default()
+    let support = ui
+        .get_support_texts()
+        .iter()
+        .map(|text| LibraryItem {
+            identifier: text.clone(),
+            text: text.clone(),
+            selected: s.group == "support" && s.ids.contains(text.as_str()),
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+    let current = ui.get_support_items();
+    if let Some(model) = current
+        .as_any()
+        .downcast_ref::<slint::VecModel<LibraryItem>>()
+    {
+        if model.row_count() == support.len()
+            && support.iter().enumerate().all(|(i, row)| {
+                model
+                    .row_data(i)
+                    .is_some_and(|old| old.identifier == row.identifier)
             })
-            .collect::<Vec<_>>(),
-    )));
+        {
+            for (i, row) in support.into_iter().enumerate() {
+                if model.row_data(i).as_ref() != Some(&row) {
+                    model.set_row_data(i, row);
+                }
+            }
+        } else {
+            model.set_vec(support);
+        }
+    } else {
+        ui.set_support_items(slint::ModelRc::new(slint::VecModel::from(support)));
+    }
     items
         .into_iter()
         .map(|mut row| {
@@ -185,6 +211,7 @@ mod tests {
     fn history_support_and_stale_days_cannot_change_or_voice_phrases() {
         for group in ["history", "support"] {
             let s = Selection {
+                revision: 0,
                 group: group.into(),
                 day: "2026-10-28".into(),
                 ids: BTreeSet::from(["id".into()]),

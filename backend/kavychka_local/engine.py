@@ -232,7 +232,7 @@ class Engine:
             else:
                 delivery = self.direction(row["text"], row["category"], event, progress)
         key = cache_key(row["text"], model, profile_hash, revision, seed,
-                        "cosy-instruct2-v1:" + delivery["voice_instruction"] if delivery else "", language=self.store.settings()["speech_language"])
+                        "cosy-instruct2-v2-full-cache-mask:" + delivery["voice_instruction"] if delivery else "", language=self.store.settings()["speech_language"])
         target = self.store.root / "audio" / (key + ".flac")
         if not target.exists():
             self.load(model, event, progress)

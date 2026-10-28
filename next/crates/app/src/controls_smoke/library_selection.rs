@@ -2,6 +2,41 @@
 use super::*;
 use serde_json::json;
 
+fn verify_details_overlay(
+    ui: &AppWindow,
+    window: &MinimalSoftwareWindow,
+    events: &Events,
+    output: &Path,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let before = output.join(format!("{name}-before-details.png"));
+    let details = output.join(format!("{name}-details.png"));
+    render(window, &before)?;
+    let selected = ui.get_library_selected_count();
+    ui.set_task_title("TASK DETAILS ABOVE LIBRARY".into());
+    ui.set_task_details("Progress and diagnostic details must cover the library toolbar.".into());
+    ui.set_show_task_details(true);
+    pump(events);
+    render(window, &details)?;
+    let before = image::open(before)?.to_rgba8();
+    let details = image::open(details)?.to_rgba8();
+    if image::imageops::crop_imm(&before, 226, 96, 830, 100).to_image()
+        == image::imageops::crop_imm(&details, 226, 96, 830, 100).to_image()
+    {
+        return Err("library toolbar covered task details".into());
+    }
+    click(ui, 232., 230.);
+    pump(events);
+    if ui.get_library_selected_count() != selected {
+        return Err("task details click selected a phrase underneath".into());
+    }
+    click(ui, 260., 368.);
+    wait(events, "task details close button", || {
+        !ui.get_show_task_details()
+    })?;
+    Ok(())
+}
+
 pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     if !output.is_absolute() || output.exists() {
         return Err("new evidence folder required".into());
@@ -51,14 +86,30 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
             && ui.get_support_texts().row_count() == 4
     })?;
     render(&window, &output.join("current-top.png"))?;
+    verify_details_overlay(&ui, &window, &events, &output, "current")?;
     click(&ui, 232., 230.);
     wait(&events, "row checkbox pointer selection", || {
         ui.get_library_selected_count() == 1
     })?;
+    let first = ui.get_library_items().row_data(0).unwrap().identifier;
+    let old_action = crate::library_actions::selection(&ui);
+    ui.invoke_toggle_library_item(first.clone());
+    ui.invoke_toggle_library_item(first.clone());
+    crate::library_actions::clear_if_unchanged(&ui, &old_action);
+    if ui.get_library_selected_count() != 1 {
+        return Err("late action cleared a newly restored selection".into());
+    }
     key(&ui, " ");
     wait(&events, "row checkbox keyboard deselection", || {
         ui.get_library_selected_count() == 0
     })?;
+    let old_all = crate::library_actions::selection(&ui);
+    ui.invoke_toggle_library_item(first.clone());
+    ui.invoke_toggle_library_item(first.clone());
+    crate::library_actions::accept_all(&ui, &old_all, vec![first.to_string()]);
+    if ui.get_library_selected_count() != 0 {
+        return Err("late select-all restored cancelled selection".into());
+    }
     ui.set_library_scroll_y(-ui.get_library_scroll_overflow());
     render(&window, &output.join("current-scrolled.png"))?;
     if ui.get_scroll_y() != 0. || ui.get_library_scroll_y() >= 0. {
@@ -138,6 +189,7 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     wait(&events, "history", || {
         ui.get_library_items().row_count() == 8 && ui.get_library_selected_count() == 0
     })?;
+    verify_details_overlay(&ui, &window, &events, &output, "history")?;
     ui.invoke_select_all_library(true);
     wait(&events, "history select all", || {
         ui.get_library_selected_count() == 8
@@ -163,6 +215,24 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     })?;
     ui.set_library_support(true);
     ui.invoke_library_filter();
+    wait(&events, "support rows before selection", || {
+        ui.get_support_items().row_count() == 4 && ui.get_library_selected_count() == 0
+    })?;
+    click(&ui, 232., 230.);
+    wait(&events, "support pointer selection", || {
+        ui.get_library_selected_count() == 1
+    })?;
+    let support_model = ui.get_support_items();
+    crate::models_ui::render(&ui, ui.get_library_json().as_str())?;
+    if !std::ptr::eq(support_model.as_any(), ui.get_support_items().as_any()) {
+        return Err("support refresh recreated focused checkbox delegates".into());
+    }
+    key(&ui, " ");
+    wait(
+        &events,
+        "support keyboard selection survives refresh",
+        || ui.get_library_selected_count() == 0,
+    )?;
     ui.invoke_select_all_library(true);
     wait(&events, "support select all", || {
         ui.get_library_selected_count() == 4

@@ -2875,30 +2875,39 @@ export component AppWindow inherits Window {
             }
         }
     }
-    if root.show-task-details : Rectangle {
+    changed show-task-details => {
+        if(root.show-task-details) {task-details-popup.show();}
+        else {task-details-popup.close();}
+    }
+    task-details-popup := PopupWindow {
         x:root.content-x;
         y:80px;
         width:root.content-width;
         height:min(320px,root.height - 150px);
-        background:Colors.surface;
-        border-width:1px;
-        border-color:Colors.accent;
-        border-radius:8px;
-        VerticalLayout {
-            padding:16px;
-            spacing:8px;
-            SectionTitle {
-                text:root.task-title!="" ? root.task-title : (root.english ? "Task details" : "Подробности задачи");
-            }
-            TextEdit {
-                read-only:true;
-                text:root.task-details!="" ? root.task-details : root.library-status;
-                accessible-label:root.english ? "Task progress and errors" : "Ход задачи и ошибки";
-            }
-            ActionButton {
-                text:root.english ? "Close" : "Закрыть";
-                clicked=>{
-                    root.show-task-details=false;
+        close-policy:no-auto-close;
+        Rectangle {
+            width:parent.width;
+            height:parent.height;
+            background:Colors.surface;
+            border-width:1px;
+            border-color:Colors.accent;
+            border-radius:8px;
+            VerticalLayout {
+                padding:16px;
+                spacing:8px;
+                SectionTitle {
+                    text:root.task-title!="" ? root.task-title : (root.english ? "Task details" : "Подробности задачи");
+                }
+                TextEdit {
+                    read-only:true;
+                    text:root.task-details!="" ? root.task-details : root.library-status;
+                    accessible-label:root.english ? "Task progress and errors" : "Ход задачи и ошибки";
+                }
+                ActionButton {
+                    text:root.english ? "Close" : "Закрыть";
+                    clicked=>{
+                        root.show-task-details=false;
+                    }
                 }
             }
         }

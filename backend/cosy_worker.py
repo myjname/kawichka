@@ -40,7 +40,7 @@ with contextlib.redirect_stdout(sys.stderr):
     import torchaudio
     # Embedded Python's isolated ._pth omits the script directory.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from kavychka_local.cosy import prepare_precision, inference_errors
+    from kavychka_local.cosy import prepare_precision, inference_errors, cached_attention_mask
     from cosyvoice.utils import file_utils
     def load_wav(path, target_sr, min_sr=16000):
         audio, rate = sf.read(path, dtype="float32", always_2d=True)
@@ -58,6 +58,11 @@ with contextlib.redirect_stdout(sys.stderr):
     logger = types.ModuleType("matcha.utils.pylogger"); logger.get_pylogger = logging.getLogger
     sys.modules["matcha.utils"], sys.modules["matcha.utils.pylogger"] = utils, logger
     import cosyvoice.cli.cosyvoice as cli
+    from cosyvoice.llm.llm import Qwen2Encoder
+    original_step = Qwen2Encoder.forward_one_step
+    def cached_step(self, xs, masks, cache=None):
+        return original_step(self, xs, cached_attention_mask(xs, masks, cache), cache)
+    Qwen2Encoder.forward_one_step = cached_step
     original_yaml = cli.load_hyperpyyaml
     def inference_yaml(stream, overrides=None, **kwargs):
         overrides = dict(overrides or {})

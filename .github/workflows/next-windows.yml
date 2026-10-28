@@ -43,10 +43,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'P1 contract check failed' }
           python -B -m unittest discover -s tests -p test_next_worker.py -v
           if ($LASTEXITCODE -ne 0) { throw 'Worker check failed' }
-          foreach ($suite in @('test_character.py','test_diversity.py','test_profiles.py','test_next_release.py','test_installer.py')) {
+          foreach ($suite in @('test_character.py','test_diversity.py','test_profiles.py','test_next_release.py','test_installer.py','test_speech_qualification.py')) {
             python -B -m unittest discover -s tests -p $suite -v
             if ($LASTEXITCODE -ne 0) { throw "Regression failed: $suite" }
           }
+      - name: Verify cached speech attention numerically (no model weights)
+        shell: pwsh
+        run: |
+          python -B -m pip install --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu torch==2.14.1
+          if ($LASTEXITCODE -ne 0) { throw 'CPU Torch setup failed' }
+          python -B -m pip install --only-binary=:all: transformers==5.10.0 soundfile==0.14.0
+          if ($LASTEXITCODE -ne 0) { throw 'Transformers setup failed' }
+          python -B -m unittest discover -s tests -p test_cosy_attention.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Cached speech attention regression failed' }
+          python -B -m unittest discover -s tests -p test_speech_cache.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Speech cache regression failed' }
       - name: Verify Rust workspace and package
         shell: pwsh
         env:

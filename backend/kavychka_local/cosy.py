@@ -15,6 +15,24 @@ def prepare_precision(llm, cuda_available):
     if not cuda_available:
         llm.float()
 
+def cached_attention_mask(xs, masks, cache):
+    """Cosy generates unpadded utterances; cached keys remain valid context.
+
+    Its upstream step mask covers only the new tokens. Recent HF attention
+    implementations require a mask spanning cached AND new keys, rather than
+    broadcasting a length-one mask over the cache.
+    """
+    if cache is None:
+        return masks
+    past = cache.get_seq_length() if hasattr(cache, "get_seq_length") else cache[0][0].shape[-2]
+    if not past or masks.shape[-1] == past + xs.shape[1]:
+        return masks
+    if masks.shape[-1] != xs.shape[1]:
+        raise ValueError("CosyVoice attention mask does not match the current or cached sequence")
+    import torch
+    prefix = masks.new_ones((*masks.shape[:-1], past))
+    return torch.cat((prefix, masks), dim=-1)
+
 @contextlib.contextmanager
 def inference_errors():
     """Surface a failed private LLM thread before publishing a partial wave."""
