@@ -192,26 +192,23 @@ impl Frames {
             height: h,
         }
     }
-    /// A paused companion reserves the bottom quarter for the cage timer.
-    /// Both the rendered image and native click mask must use this rectangle.
+    /// The companion keeps its square body. Pausing grows the window below it.
+    pub fn window_height(size: f32, paused: bool) -> f32 {
+        size + if paused { (size * 0.22).max(22.) } else { 0. }
+    }
+    /// Both the image and click mask use the unchanged body rectangle.
     pub fn scene_placement(
         &self,
         index: usize,
         width: u32,
         height: u32,
         scale: f32,
-        paused: bool,
+        _paused: bool,
     ) -> Placement {
         if height > 4096 {
             return self.placement(index, width, height, scale);
         }
-        let scene_height = if paused && scale.is_finite() && scale > 0. {
-            let padding = (8. * scale).round() as u32 * 2;
-            padding.saturating_add(height.saturating_sub(padding) * 3 / 4)
-        } else {
-            height
-        };
-        self.placement(index, width, scene_height, scale)
+        self.placement(index, width, height.min(width), scale)
     }
     /// Exact contain geometry used by PetWindow. Alpha < 8 is click-through,
     /// including holes; never union frames (that would fill animated holes).
@@ -240,7 +237,7 @@ impl Frames {
         // let Windows build the entire native region in one bounded call.
         let rect = |x: f32, y: f32, w: f32, h: f32| {
             let available_w = (width as f32 - 16. * scale).max(0.);
-            let available_h = (height as f32 - 16. * scale).max(0.);
+            let available_h = (height.min(width) as f32 - 16. * scale).max(0.);
             [
                 (8. * scale + x * available_w / 100.).floor() as i32,
                 (8. * scale + y * available_h / 100.).floor() as i32,
@@ -251,9 +248,13 @@ impl Frames {
         let mut controls = vec![];
         if paused {
             for i in 0..4 {
-                controls.push(rect(14. + i as f32 * 23., 10., 3., 66.));
+                controls.push(rect(14. + i as f32 * 23., 6., 3., 88.));
             }
-            controls.push(rect(3., 77., 94., 19.));
+            let margin = (8. * scale).ceil() as i32;
+            let body = height.min(width) as i32;
+            if height as i32 > body + margin {
+                controls.push([margin, body, width as i32 - margin, height as i32 - margin]);
+            }
         } else if pending {
             controls.push(rect(68., 73., 25., 22.));
         }
@@ -486,7 +487,7 @@ mod tests {
         assert!(f.placement(0, 100, 100, f32::NAN).width == 0);
     }
     #[test]
-    fn paused_sprite_and_click_mask_reserve_the_timer_area_at_all_sizes() {
+    fn paused_sprite_keeps_body_geometry_and_puts_timer_below_at_all_sizes() {
         let frames = Frames {
             frames: vec![(
                 image::RgbaImage::from_pixel(64, 64, image::Rgba([220, 130, 90, 255])),
@@ -498,24 +499,52 @@ mod tests {
         for scale in [1., 1.25, 1.5, 2.] {
             for logical in [80, 120, 137, 200, 260] {
                 let size = (logical as f32 * scale).round() as u32;
-                let p = frames.scene_placement(0, size, size, scale, true);
-                let margin = (8. * scale).round() as u32;
-                let timer_top = margin + (size - 2 * margin) * 77 / 100;
-                assert!(p.top + p.height <= timer_top);
+                let height = (Frames::window_height(logical as f32, true) * scale).round() as u32;
+                let p = frames.scene_placement(0, size, height, scale, true);
+                let plain = frames.scene_placement(0, size, size, scale, false);
+                assert_eq!(p, plain);
+                assert_eq!(frames.raster(0, p), frames.raster(0, plain));
+                assert!(p.top + p.height <= size);
                 assert_eq!(p.width, p.height);
-                let spans = frames.hit_spans(0, size, size, true, false, scale);
+                let spans = frames.hit_spans(0, size, height, true, false, scale);
                 assert!(contains(
                     &spans,
                     (p.left + p.width / 2) as i32,
                     (p.top + p.height / 2) as i32
                 ));
-                assert!(contains(&spans, (size / 2) as i32, (timer_top + 2) as i32));
+                assert!(contains(&spans, (size / 2) as i32, (size + 2) as i32));
                 assert_eq!(
                     frames.scene_placement(0, size, size, scale, false),
                     frames.placement(0, size, size, scale)
                 );
             }
         }
+    }
+    #[test]
+    fn idle_gif_obeys_periodic_continuous_and_paused_modes() {
+        let frames = Frames {
+            frames: (0..3)
+                .map(|i| {
+                    (
+                        image::RgbaImage::from_pixel(2, 2, image::Rgba([i, 0, 0, 255])),
+                        100,
+                    )
+                })
+                .collect(),
+            atlas: false,
+            pixelated: true,
+        };
+        let mut mode = kavychka_core::preferences::ReminderOptions::default();
+        assert!(!mode.animation_active(true, false, 32_000, false));
+        assert_eq!(frames.index(32_000, true, false, false, false), 0);
+        mode.idle_continuous = true;
+        let idle = mode.animation_active(true, false, 32_000, false);
+        assert!(idle);
+        assert_ne!(
+            frames.index(32_000, !idle, false, false, false),
+            frames.index(32_100, !idle, false, false, false)
+        );
+        assert_eq!(frames.index(32_000, true, false, false, false), 0);
     }
     #[test]
     fn existing_codex_atlas_still_decodes_its_animation_rows() {

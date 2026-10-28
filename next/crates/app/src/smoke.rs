@@ -1064,7 +1064,7 @@ fn run_impl(
         || !saved.schedule.work_days.contains(&6)
         || saved.idle_minutes != 7
         || saved.reminders.audio_device != "p3-missing-endpoint"
-        || saved.reminders.animation_intensity != AnimationIntensity::Expressive
+        || !saved.reminders.idle_continuous
         || saved.generation.address_form != "female"
         || saved.generation.categories != ["lunch"]
         || saved.generation.model_paths.len() != 2

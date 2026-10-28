@@ -245,7 +245,7 @@ fn refresh_deliveries(ui: &AppWindow) {
         ));
     }
 }
-fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
+pub(crate) fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
     let mut view: View = serde_json::from_str(json).map_err(|e| e.to_string())?;
     view.english = ui.get_english();
     let en = view.english;
@@ -416,10 +416,12 @@ fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
             })
             .collect::<Vec<_>>(),
     )));
+    ui.set_library_day(view.day.as_str().into());
     let list = view
         .phrases
         .iter()
         .map(|r| LibraryItem {
+            selected: false,
             state: phrase_status(r, &view).0.into(),
             state_hint: phrase_status(r, &view).1.into(),
             identifier: r.id.as_str().into(),
@@ -537,6 +539,7 @@ fn render(ui: &AppWindow, json: &str) -> Result<(), String> {
             has_audio: view.audio_available.contains(&r.id),
         })
         .collect::<Vec<_>>();
+    let list = crate::library_actions::decorate(ui, list);
     let current = ui.get_library_items();
     if let Some(model) = current.as_any().downcast_ref::<VecModel<LibraryItem>>() {
         if model.row_count() == list.len()
@@ -738,6 +741,7 @@ pub fn wire(ui: &AppWindow, backend: &Backend) {
     });
 
     crate::presets_ui::wire(ui, backend);
+    crate::library_actions::wire(ui, backend);
     let weak = ui.as_weak();
     ui.on_library_update(move |json| {
         if let Some(ui) = weak.upgrade() {
@@ -750,10 +754,13 @@ pub fn wire(ui: &AppWindow, backend: &Backend) {
     let weak = ui.as_weak();
     let sender = backend.sender.clone();
     ui.on_library_filter(move || {
-        if let Some(ui) = weak.upgrade()
-            && let Err(e) = sender.try_send(Command::LibraryPage(ui.get_library_today(), 0))
-        {
-            ui.set_library_status(e.to_string().into());
+        if let Some(ui) = weak.upgrade() {
+            crate::library_actions::clear(&ui);
+            ui.set_library_scroll_y(0.);
+            ui.set_library_controls(false);
+            if let Err(e) = sender.try_send(Command::LibraryPage(ui.get_library_today(), 0)) {
+                ui.set_library_status(e.to_string().into());
+            }
         }
     });
     let weak = ui.as_weak();
@@ -761,6 +768,7 @@ pub fn wire(ui: &AppWindow, backend: &Backend) {
     ui.on_library_page(move |direction| {
         if let Some(ui) = weak.upgrade() {
             let page = (ui.get_library_page_index() + direction).max(0) as usize;
+            ui.set_library_scroll_y(0.);
             if let Err(e) = sender.try_send(Command::LibraryPage(ui.get_library_today(), page)) {
                 ui.set_library_status(e.to_string().into());
             }

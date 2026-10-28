@@ -26,15 +26,14 @@ export component PetWindow inherits Window {
     callback drag-move;
     callback drag-end;
     Rectangle {
-        x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; border-radius: 26px;
+        x: 8px; y: 8px; width: parent.width - 16px; height: parent.width - 16px; border-radius: 26px;
         background: root.custom-visual ? transparent : (root.dark ? #282d3a : #edf0fc); border-width: root.custom-visual ? 0px : 1px; border-color: root.dark ? #41495f : #d8dff5;
         Image { x: root.custom-visual ? root.custom-left - 8px : 8px; y: root.custom-visual ? root.custom-top - 8px : (root.attention ? 4px : 8px); width: root.custom-visual ? root.custom-width : parent.width - 16px; height: root.custom-visual ? root.custom-height : parent.height - 20px; image-fit: contain; image-rendering: root.custom-visual && root.custom-pixelated ? pixelated : smooth; source: root.custom-visual ? root.custom-image : @image-url("../../design-preview/ui/quote.svg"); }
         if root.blink && !root.custom-visual : Rectangle { x: 29px; y: root.attention ? 25px : 29px; width: 7px; height: 7px; background: #637ad1; Rectangle { y: 4px; height: 1px; width: parent.width; background: white; } }
         if root.blink && !root.custom-visual : Rectangle { x: 63px; y: root.attention ? 25px : 29px; width: 7px; height: 7px; background: #637ad1; Rectangle { y: 4px; height: 1px; width: parent.width; background: white; } }
         if root.paused : Rectangle {
             width: parent.width; height: parent.height;
-            for i in 4 : Rectangle { x: parent.width * (0.14 + i * 0.23); y: parent.height * 0.10; width: parent.width * 0.03; height: parent.height * 0.66; background: root.dark ? #8e97ae : #9099ae; }
-            Text { x: parent.width * 0.03; y: parent.height * 0.77; width: parent.width * 0.94; height: parent.height * 0.19; text: root.countdown; horizontal-alignment: center; vertical-alignment: center; color: root.dark ? #f1f2f6 : #242837; font-size: parent.height * 0.11; font-family: "Segoe UI"; }
+            for i in 4 : Rectangle { x: parent.width * (0.14 + i * 0.23); y: parent.height * 0.06; width: parent.width * 0.03; height: parent.height * 0.88; background: root.dark ? #8e97ae : #9099ae; }
         }
         if !root.paused && root.pending > 0 : Rectangle {
             x: parent.width * 0.68; y: parent.height * 0.73; width: parent.width * 0.25; height: parent.height * 0.22; border-radius: self.height / 2; background: #5369c9;
@@ -54,6 +53,11 @@ export component PetWindow inherits Window {
             MenuSeparator {}
             MenuItem { title: root.english ? "Exit" : "Выйти"; activated => { root.quit(); } }
         } }
+    }
+    if root.paused : Text {
+        x:8px; y:root.width; width:root.width - 16px; height:max(0px,root.height - root.width - 8px);
+        text:root.countdown; horizontal-alignment:center; vertical-alignment:center;
+        color:root.dark ? #f1f2f6 : #242837; font-size:min(20px,max(11px,(root.width - 16px)*0.11)); font-family:"Segoe UI";
     }
 }
 export component NoticeWindow inherits Window {

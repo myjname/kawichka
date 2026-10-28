@@ -94,7 +94,7 @@ component TabButton inherits Rectangle {
     TouchArea { clicked=>{ focus.focus(); root.clicked(); } }
 }
 export struct LibraryItem {
-    identifier:string, text:string, caption:string, kept:bool, excluded:bool, has-audio:bool, state:string, state-hint:string
+    identifier:string, text:string, caption:string, kept:bool, excluded:bool, has-audio:bool, state:string, state-hint:string, selected:bool
 }
 component IconButton inherits Rectangle {
     in property <string> tip;
@@ -652,6 +652,7 @@ component CloseDialog inherits Rectangle {
 }
 component RemovePhraseDialog inherits Rectangle {
     in property <bool> english;
+    in property <int> count:1;
     callback cancel;
     callback confirm;
     background:#00000070;
@@ -671,7 +672,7 @@ component RemovePhraseDialog inherits Rectangle {
             width:min(460px,parent.width - 48px); height:200px;
             VerticalLayout {
                 padding:20px; spacing:12px;
-                SectionTitle { text:root.english ? "Remove this phrase?" : "Удалить эту фразу?"; }
+                SectionTitle { text:root.english ? ("Remove selected: "+root.count+"?") : ("Удалить выделенные: "+root.count+"?"); }
                 Hint { text:root.english ? "It will leave the list and reminders. Its text stays in anti-repeat history; the recording follows the daily audio cleanup policy." : "Фраза исчезнет из списка и напоминаний. Текст останется для защиты от повторов; запись — до обычной очистки аудио."; }
                 HorizontalLayout {
                     spacing:8px; alignment:end; vertical-stretch:0;
@@ -789,6 +790,8 @@ export component AppWindow inherits Window {
     in-out property <bool> pet-visible;
     in-out property <bool> animation;
     in-out property <int> animation-index: 1;
+    in-out property <int> idle-play-seconds: 5;
+    in-out property <int> idle-pause-seconds: 30;
     in-out property <int> address-index;
     in-out property <string> audio-device-id;
     in-out property <int> audio-device-index;
@@ -811,6 +814,19 @@ export component AppWindow inherits Window {
     property <length> content-x: root.sidebar + 20px;
     property <length> content-width: root.width - root.content-x - 20px;
     in property <[LibraryItem]> library-items;
+    in property <[LibraryItem]> support-items;
+    in-out property <string> library-selection;
+    in-out property <string> library-day;
+    in-out property <length> library-scroll-y;
+    out property <length> library-scroll-overflow:max(0px,library-list.content-height - library-list.height);
+    in property <int> library-selected-count;
+    in property <bool> library-all-selected;
+    callback toggle-library-item(string);
+    callback select-all-library(bool);
+    callback library-action(string);
+    in-out property <bool> confirm-library-delete;
+    in-out property <string> library-delete-selection;
+
     in property <string> library-json;
     in property <string> library-status;
     in property <string> library-summary;
@@ -1235,11 +1251,12 @@ export component AppWindow inherits Window {
         text:root.background-running ? root.runtime-status : (root.english ? "Settings preview" : "Предпросмотр настроек");
     }
     main-scroll := ScrollView {
+        visible:root.page!=2;
+        height:root.page==2 ? 0px : parent.height - 142px;
         content-y<=>root.scroll-y;
         x:root.content-x;
         y:80px;
         width:root.content-width;
-        height:parent.height - 142px;
         content-width:self.width;
         enabled:root.ready && !root.busy && !root.confirm-close && !root.onboarding && (!root.data-operation-active || root.page==6 || (root.page==7 && root.profile-review=="diagnostic"));
         VerticalLayout {
@@ -1624,287 +1641,6 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if root.page == 2 : Card {
-                VerticalLayout {
-                    padding:16px;
-                    spacing:8px;
-                    Label {
-                        text:root.library-support ? ((root.english ? "Support today: " : "Поддержка на сегодня: ")+root.support-texts.length) : (root.library-counts!="" ? root.library-counts : root.library-summary);
-                        min-height:25px;
-                        font-weight:600;
-                    }
-                    if !root.library-support : HorizontalLayout {
-                        spacing:8px;
-                        alignment:start;
-                        min-height:32px;
-                        vertical-stretch:0;
-                        ActionButton {
-                            text:root.english ? "Prepare day" : "Подготовить день";
-                            enabled:!root.generation-running && !root.dirty;
-                            primary:true;
-                            clicked=>{
-                                root.prepare-day();
-                            }
-                        }
-                        ActionButton {
-                            text:root.english ? "New batch…" : "Новая партия…";
-                            clicked=>{
-                                root.library-controls=!root.library-controls;
-                            }
-                        }
-                        ActionButton {
-                            text:root.english ? "Revoice today" : "Переозвучить сегодня";
-                            enabled:!root.generation-running && !root.dirty;
-                            clicked=>{
-                                root.regenerate-speech("");
-                            }
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing:8px;
-                        alignment:start;
-                        min-height:32px;
-                        vertical-stretch:0;
-                        TabButton {
-                            text:(root.english ? "Current · " : "Актуальные · ")+root.library-current-count;
-                            selected:root.library-today && !root.library-support;
-                            clicked=>{ root.library-support=false; root.library-today=true; root.library-filter(); }
-                        }
-                        TabButton {
-                            text:(root.english ? "History · " : "История · ")+root.library-history-count;
-                            selected:!root.library-today && !root.library-support;
-                            clicked=>{ root.library-support=false; root.library-today=false; root.library-filter(); }
-                        }
-                        TabButton {
-                            text:root.english ? "Support" : "Поддержка"; selected:root.library-support;
-                            clicked=>{ root.library-support=true; }
-                        }
-                    }
-                    if !root.library-support : Hint {
-                        text:root.english ? "● Available today · ✓ Played · ◷ Used without confirmed speech · × Excluded · ? Review · ! Missing audio / error · ■ Stopped · … Speech requested · — History" : "● Доступна сегодня · ✓ Озвучена · ◷ Использована без подтверждённой озвучки · × Исключена · ? На отбор · ! Нет записи / ошибка · ■ Остановлена · … Озвучка начата · — История";
-                    }
-                    if !root.library-support : HorizontalLayout {
-                        spacing:8px; alignment:start; vertical-stretch:0;
-                        ActionButton {
-                            text:root.english ? "Previous" : "Назад";
-                            enabled:root.library-page-index>0;
-                            clicked=>{
-                                root.library-page(-1);
-                            }
-                        }
-                        Label {
-                            text:root.library-page-caption;
-                            min-width:85px;
-                            font-size:12px;
-                        }
-                        ActionButton {
-                            text:root.english ? "Next" : "Далее";
-                            enabled:root.library-has-next;
-                            clicked=>{
-                                root.library-page(1);
-                            }
-                        }
-                    }
-                }
-            }
-            if root.page==2 && !root.library-support && root.library-controls : Card {
-                VerticalLayout {
-                    padding:16px;
-                    spacing:8px;
-                    SectionTitle {
-                        text:root.english ? "New phrase batch" : "Новая партия фраз";
-                    }
-                    Field {
-                        title:root.english ? "Phrase count" : "Всего фраз";
-                        control-width:110px;
-                        CompactSpinBox {
-                            accessible-label:parent.title;
-                            minimum:1;
-                            maximum:100;
-                            value<=>root.batch-count;
-                            edited=>{
-                                root.edited();
-                            }
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing:8px;
-                        alignment:start;
-                        min-height:32px;
-                        vertical-stretch:0;
-                        ChoiceToggle {
-                            text:root.english ? "Breaks" : "Перерывы";
-                            checked<=>root.category-break;
-                            toggled=>{
-                                root.edited();
-                            }
-                        }
-                        ChoiceToggle {
-                            text:root.english ? "Breakfast" : "Завтрак";
-                            checked<=>root.category-breakfast;
-                            toggled=>{
-                                root.edited();
-                            }
-                        }
-                        ChoiceToggle {
-                            text:root.english ? "Lunch" : "Обед";
-                            checked<=>root.category-lunch;
-                            toggled=>{
-                                root.edited();
-                            }
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing:8px;
-                        alignment:start;
-                        min-height:32px;
-                        vertical-stretch:0;
-                        ChoiceToggle {
-                            text:root.english ? "Dinner" : "Ужин";
-                            checked<=>root.category-dinner;
-                            toggled=>{
-                                root.edited();
-                            }
-                        }
-                        ChoiceToggle {
-                            text:root.english ? "Stretch" : "Разминка";
-                            checked<=>root.category-exercise;
-                            toggled=>{
-                                root.edited();
-                            }
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing:8px;
-                        alignment:start;
-                        min-height:32px;
-                        vertical-stretch:0;
-                        ActionButton {
-                            text:root.english ? "Generate batch" : "Создать партию";
-                            enabled:!root.generation-running && !root.dirty;
-                            primary:true;
-                            clicked=>{
-                                root.generate-batch();
-                            }
-                        }
-                        ActionButton {
-                            text:root.english ? "Export phrases" : "Экспорт фраз";
-                            enabled:!root.generation-running;
-                            clicked=>{
-                                root.export-library();
-                            }
-                        }
-                        ActionButton {
-                            text:root.english ? "Clear recordings…" : "Очистить аудио…";
-                            enabled:!root.generation-running;
-                            clicked=>{
-                                root.confirm-clear=true;
-                            }
-                        }
-                    }
-                    if root.on-battery : ActionButton {
-                        text:root.english ? "Generate on battery once" : "Создать от батареи один раз";
-                        enabled:!root.generation-running && !root.dirty;
-                        clicked=>{
-                            root.generate-on-battery();
-                        }
-                    }
-                    Hint {
-                        text:root.english ? "Save changes before starting. Prepare day follows the schedule." : "Сохрани настройки перед запуском. «Подготовить день» учитывает расписание.";
-                    }
-                }
-            }
-            if root.page==2 && root.confirm-clear : Card {
-                VerticalLayout {
-                    padding:14px;
-                    spacing:8px;
-                    Hint {
-                        text:root.english ? "Remove recordings? Texts and repeat history stay; a recovery copy is retained." : "Удалить записи? Тексты и история повторов сохранятся; будет создан резерв.";
-                    }
-                    HorizontalLayout {
-                        spacing:8px;
-                        alignment:start;
-                        min-height:32px;
-                        vertical-stretch:0;
-                        ActionButton {
-                            text:root.english ? "Cancel" : "Отмена";
-                            clicked=>{
-                                root.confirm-clear=false;
-                            }
-                        }
-                        ActionButton {
-                            text:root.english ? "Remove audio" : "Удалить аудио";
-                            clicked=>{
-                                root.clear-recordings();
-                                root.confirm-clear=false;
-                            }
-                        }
-                    }
-                }
-            }
-            if root.page==2 && root.library-support : Card {
-                VerticalLayout {
-                    padding:16px; spacing:10px;
-                    SectionTitle { text:(root.english ? "Today's support · " : "Поддержка на сегодня · ")+root.support-texts.length; }
-                    Hint { text:root.english ? "Text only. These lines do not enter the reminder queue or generate audio." : "Только текст. Эти фразы не попадают в очередь напоминаний и не озвучиваются."; }
-                    for text in root.support-texts : Text { text:text; wrap:word-wrap; color:Colors.ink; font-size:14px; vertical-stretch:0; }
-                }
-            }
-            if root.page==2 && !root.library-support : VerticalLayout {
-                spacing:1px;
-                for item in root.library-items : Rectangle {
-                    height: max(72px, (root.expanded-phrase==item.identifier ? phrase.preferred-height : 40px) + 34px);
-                    vertical-stretch:0; background:Colors.surface;
-                    Rectangle { height:1px; width:parent.width; background:Colors.line; }
-                    Label {
-                        x:10px; y:5px; height:19px; width:parent.width - 20px;
-                        font-size:11px; color:Colors.muted; text:item.caption;
-                    }
-                    phrase := Text {
-                        min-width:0px;
-                        x:10px; y:27px; width:max(80px,parent.width - 258px);
-                        height:root.expanded-phrase==item.identifier ? self.preferred-height : 40px;
-                        text:item.text; color:Colors.ink; font-size:13px; wrap:word-wrap;
-                        overflow:elide;
-                    }
-                    HorizontalLayout {
-                        x:parent.width - 238px; y:29px; width:228px; height:30px;
-                        spacing:3px; alignment:end;
-                        Rectangle {
-                            width:27px; height:30px; horizontal-stretch:0;
-                            accessible-role:text; accessible-label:item.state-hint;
-                            Text { text:item.state; color:Colors.accent; horizontal-alignment:center; vertical-alignment:center; font-size:18px; }
-                            Tooltip { text:@markdown("\{item.state-hint}"); }
-                        }
-                        IconButton {
-                            icon:@image-url("icons/play.svg"); tip:item.has-audio ? (root.english ? "Listen" : "Прослушать") : (root.english ? "No recording" : "Нет готовой записи");
-                            enabled:item.has-audio; clicked=>{ root.play-phrase(item.identifier); }
-                        }
-                        IconButton {
-                            icon:item.kept && !item.excluded ? @image-url("icons/exclude.svg") : @image-url("icons/check.svg");
-                            tip:item.kept && !item.excluded ? (root.english ? "Exclude from reminders" : "Исключить из напоминаний") : (root.english ? "Keep for reminders" : "Оставить для напоминаний");
-                            clicked=>{ root.select-phrase(item.identifier, !item.kept || item.excluded); }
-                        }
-                        IconButton {
-                            icon:@image-url("icons/refresh.svg"); tip:root.generation-running ? (root.english ? "Wait for the current task" : "Дождись текущей задачи") : root.dirty ? (root.english ? "Save settings first" : "Сначала сохрани настройки") : (root.english ? "Regenerate speech" : "Переозвучить");
-                            enabled:!root.generation-running && !root.dirty;
-                            clicked=>{ root.regenerate-speech(item.identifier); }
-                        }
-                        IconButton {
-                            icon:@image-url("icons/expand.svg");
-                            tip:root.expanded-phrase==item.identifier ? (root.english ? "Collapse" : "Свернуть") : (root.english ? "Full text" : "Весь текст");
-                            clicked=>{ root.expanded-phrase=root.expanded-phrase==item.identifier ? "" : item.identifier; }
-                        }
-                        IconButton {
-                            icon:@image-url("icons/trash.svg"); tip:root.english ? "Remove from library…" : "Удалить из библиотеки…";
-                            enabled:!root.generation-running;
-                            clicked=>{ root.delete-phrase-id=item.identifier; }
-                        }
-                    }
-                }
-                if root.library-items.length==0 : Hint { text:root.english ? "No phrases in this list." : "В этом списке пока нет фраз."; }
-            }
-
             if root.page == 3 : Card {
                 VerticalLayout {
                     padding:16px;
@@ -2663,16 +2399,37 @@ export component AppWindow inherits Window {
                     }
                     Field {
                         title:root.english ? "Animation" : "Анимация";
+                        hint:root.english ? "Idle movement follows this mode. Speech and confirmation reactions can play between cycles. Off stops all animations." : "Режим управляет движением в покое. Реакции на речь и подтверждение могут проигрываться между циклами. «Выключена» останавливает все анимации.";
                         CompactComboBox {
                             accessible-label:parent.title;
                             current-index: root.animation ? root.animation-index : 0;
-                            model:root.english ? ["Off", "Subtle", "Expressive"] : ["Выключена", "Спокойная", "Выразительная"];
+                            model:root.english ? ["Off", "With pauses", "Continuous"] : ["Выключена", "С паузами", "Непрерывно"];
                             selected=>{
                                 let choice = self.current-index;
                                 root.animation-index=choice;
                                 root.animation=choice!=0;
                                 root.edited();
                             }
+                        }
+                    }
+                    if root.animation && root.animation-index == 1 : Field {
+                        title:root.english ? "Idle animation, sec" : "Движение в покое, сек";
+                        control-width:110px;
+                        CompactSpinBox {
+                            accessible-label:parent.title;
+                            minimum:1; maximum:300;
+                            value<=>root.idle-play-seconds;
+                            edited=>{ root.edited(); }
+                        }
+                    }
+                    if root.animation && root.animation-index == 1 : Field {
+                        title:root.english ? "Animation pause, sec" : "Пауза движения, сек";
+                        control-width:110px;
+                        CompactSpinBox {
+                            accessible-label:parent.title;
+                            minimum:1; maximum:3600;
+                            value<=>root.idle-pause-seconds;
+                            edited=>{ root.edited(); }
                         }
                     }
                     Field {
@@ -3532,6 +3289,187 @@ export component AppWindow inherits Window {
             }
         }
     }
+
+    Rectangle {
+        x:root.content-x; y:80px; width:root.content-width; height:parent.height - 142px;
+        visible:root.page==2;
+        FocusScope {
+            enabled:root.ready && !root.busy && !root.confirm-close && !root.onboarding && !root.data-operation-active;
+            width:parent.width; height:parent.height;
+            key-pressed(event)=>{
+                if(event.modifiers.control && (event.text=="a" || event.text=="A")) {root.select-all-library(true);return accept;}
+                return reject;
+            }
+            VerticalLayout {
+                padding:0px; spacing:8px;
+                Card {
+                    VerticalLayout {
+                        padding:10px; spacing:6px;
+                        HorizontalLayout {
+                            spacing:6px; alignment:start; vertical-stretch:0;
+                            TabButton {text:(root.english ? "Current · " : "Актуальные · ")+root.library-current-count; selected:root.library-today && !root.library-support; clicked=>{root.library-support=false;root.library-today=true;root.library-filter();}}
+                            TabButton {text:(root.english ? "History · " : "История · ")+root.library-history-count; selected:!root.library-today && !root.library-support; clicked=>{root.library-support=false;root.library-today=false;root.library-filter();}}
+                            TabButton {text:(root.english ? "Support · " : "Поддержка · ")+root.support-texts.length;selected:root.library-support;clicked=>{root.library-support=true;root.library-filter();}}
+                        }
+                        HorizontalLayout {
+                            spacing:6px; alignment:start; vertical-stretch:0;
+                            if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/prepare.svg");tip:root.english ? "Prepare missing phrases for today" : "Подготовить недостающие фразы на сегодня";enabled:!root.generation-running && !root.dirty;clicked=>{root.prepare-day();}}
+                            if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/plus.svg");tip:root.english ? "Generate a new batch…" : "Создать новую партию…";clicked=>{root.library-controls=true;}}
+                            if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/download.svg");tip:root.english ? "Export selected phrases" : "Экспорт выделенных фраз";enabled:root.library-selected-count>0 && !root.generation-running && !root.dirty;clicked=>{root.library-action("export");}}
+                            if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/stop.svg");tip:root.english ? "Cancel generation" : "Отменить генерацию";enabled:root.generation-running;clicked=>{root.cancel-generation();}}
+                            Rectangle {horizontal-stretch:1;}
+                            if !root.library-support : IconButton {icon:@image-url("icons/previous.svg");tip:root.english ? "Previous page" : "Предыдущая страница";enabled:root.library-page-index>0;clicked=>{root.library-page(-1);}}
+                            Label {text:root.library-support ? (root.english ? "Text only" : "Без озвучки") : root.library-page-caption;min-width:70px;font-size:12px;vertical-alignment:center;}
+                            if !root.library-support : IconButton {icon:@image-url("icons/next.svg");tip:root.english ? "Next page" : "Следующая страница";enabled:root.library-has-next;clicked=>{root.library-page(1);}}
+                            if !root.library-support : IconButton {icon:@image-url("icons/info.svg");tip:root.english ? "● Available today; ✓ Played; ◷ Used without confirmed speech; × Excluded; ? Review; ! Missing audio/error; ■ Stopped; … Speech requested; — History" : "● Доступна сегодня; ✓ Озвучена; ◷ Использована без подтверждённой озвучки; × Исключена; ? На отбор; ! Нет записи/ошибка; ■ Остановлена; … Озвучка начата; — История";}
+                        }
+                        HorizontalLayout {
+                            spacing:6px; alignment:start; vertical-stretch:0;
+                            CheckBox {text:root.english ? "All" : "Все";checked:root.library-all-selected;accessible-label:root.english ? "Select all phrases in this category, across pages" : "Выбрать все фразы категории на всех страницах";toggled=>{self.focus();root.select-all-library(!root.library-all-selected);}}
+                            Label {text:(root.english ? "Selected: " : "Выбрано: ")+root.library-selected-count;min-width:100px;vertical-alignment:center;font-size:12px;}
+                            if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/play.svg");tip:root.english ? "Listen: select one phrase" : "Прослушать: выбери одну фразу";enabled:root.library-selected-count==1;clicked=>{root.library-action("play");}}
+                            if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/check.svg");tip:root.english ? "Keep selected for reminders" : "Оставить выделенные для напоминаний";enabled:root.library-selected-count>0 && !root.generation-running;clicked=>{root.library-action("keep");}}
+                            if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/exclude.svg");tip:root.english ? "Exclude selected from reminders" : "Исключить выделенные из напоминаний";enabled:root.library-selected-count>0 && !root.generation-running;clicked=>{root.library-action("exclude");}}
+                            if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/refresh.svg");tip:root.english ? "Regenerate speech for selected phrases" : "Переозвучить выделенные фразы";enabled:root.library-selected-count>0 && !root.generation-running && !root.dirty;clicked=>{root.library-action("speech");}}
+                            if root.library-today && !root.library-support : IconButton {icon:@image-url("icons/stop.svg");tip:root.english ? "Stop speech" : "Остановить речь";clicked=>{root.silence();}}
+                            Rectangle {horizontal-stretch:1;}
+                            IconButton {icon:@image-url("icons/trash.svg");tip:root.english ? "Delete selected…" : "Удалить выделенные…";enabled:root.library-selected-count>0 && !root.generation-running;clicked=>{root.library-delete-selection=root.library-selection;root.confirm-library-delete=true;}}
+                        }
+                    }
+                }
+                library-list := ScrollView {
+                    vertical-stretch:1; content-width:self.width; content-y<=>root.library-scroll-y;
+                    accessible-role:list;
+                    accessible-label:root.english ? "Phrase list" : "Список фраз";
+                    VerticalLayout {
+                        spacing:1px; padding:0px;
+                        for item in (root.library-support ? root.support-items : root.library-items) : Rectangle {
+                            height:max(root.library-support ? 56px : 72px,phrase.preferred-height + (root.library-support ? 20px : 36px));
+                            vertical-stretch:0;background:item.selected ? Colors.soft : Colors.surface;
+                            TouchArea {x:40px;y:0px;width:parent.width - 76px;height:parent.height;clicked=>{root.toggle-library-item(item.identifier);}}
+                            CheckBox {x:8px;y:8px;width:28px;height:30px;checked:item.selected;accessible-label:(root.english ? "Select phrase: " : "Выбрать фразу: ")+item.text;toggled=>{self.focus();root.toggle-library-item(item.identifier);}}
+                            if !root.library-support : Label {x:42px;y:5px;height:18px;width:parent.width - 52px;font-size:11px;color:Colors.muted;text:item.caption;}
+                            phrase := Text {x:42px;y:root.library-support ? 10px : 27px;width:max(80px,parent.width - 82px);height:self.preferred-height;text:item.text;color:Colors.ink;font-size:13px;wrap:word-wrap;}
+                            if !root.library-support : Rectangle {x:parent.width - 32px;y:27px;width:24px;height:24px;accessible-role:text;accessible-label:item.state-hint;Text {x:0px;y:0px;width:parent.width;height:parent.height;text:item.state;color:Colors.accent;horizontal-alignment:center;vertical-alignment:center;font-size:18px;}Tooltip {text:@markdown("\{item.state-hint}");}}
+                            Rectangle {x:8px;y:parent.height - 1px;height:1px;width:parent.width - 16px;background:Colors.line;}
+                        }
+                        if (root.library-support ? root.support-items.length : root.library-items.length)==0 : Hint {text:root.english ? "No phrases in this list." : "В этом списке пока нет фраз.";}
+                        Rectangle {vertical-stretch:1;min-height:0px;}
+                    }
+                }
+            }
+        }
+    }
+    changed library-controls=>{if(root.library-controls){batch-popup.show();}else{batch-popup.close();}}
+    batch-popup := PopupWindow {
+        x:root.content-x;y:80px;width:root.content-width;height:min(520px,root.height - 100px);close-policy:no-auto-close;
+        Rectangle {
+            background:Colors.surface;
+            VerticalLayout {
+                padding:10px;spacing:8px;
+                HorizontalLayout {Label {text:root.english ? "New phrase batch" : "Новая партия фраз";font-weight:600;}IconButton {icon:@image-url("icons/exclude.svg");tip:root.english ? "Close" : "Закрыть";clicked=>{root.library-controls=false;}}}
+                ScrollView {content-width:self.width;vertical-stretch:1;
+                    VerticalLayout {
+            Card {
+                VerticalLayout {
+                    padding:16px;
+                    spacing:8px;
+                    SectionTitle {
+                        text:root.english ? "New phrase batch" : "Новая партия фраз";
+                    }
+                    Field {
+                        title:root.english ? "Phrase count" : "Всего фраз";
+                        control-width:110px;
+                        CompactSpinBox {
+                            accessible-label:parent.title;
+                            minimum:1;
+                            maximum:100;
+                            value<=>root.batch-count;
+                            edited=>{
+                                root.edited();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing:8px;
+                        alignment:start;
+                        min-height:32px;
+                        vertical-stretch:0;
+                        ChoiceToggle {
+                            text:root.english ? "Breaks" : "Перерывы";
+                            checked<=>root.category-break;
+                            toggled=>{
+                                root.edited();
+                            }
+                        }
+                        ChoiceToggle {
+                            text:root.english ? "Breakfast" : "Завтрак";
+                            checked<=>root.category-breakfast;
+                            toggled=>{
+                                root.edited();
+                            }
+                        }
+                        ChoiceToggle {
+                            text:root.english ? "Lunch" : "Обед";
+                            checked<=>root.category-lunch;
+                            toggled=>{
+                                root.edited();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing:8px;
+                        alignment:start;
+                        min-height:32px;
+                        vertical-stretch:0;
+                        ChoiceToggle {
+                            text:root.english ? "Dinner" : "Ужин";
+                            checked<=>root.category-dinner;
+                            toggled=>{
+                                root.edited();
+                            }
+                        }
+                        ChoiceToggle {
+                            text:root.english ? "Stretch" : "Разминка";
+                            checked<=>root.category-exercise;
+                            toggled=>{
+                                root.edited();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing:8px;
+                        alignment:start;
+                        min-height:32px;
+                        vertical-stretch:0;
+                        ActionButton {
+                            text:root.english ? "Generate batch" : "Создать партию";
+                            enabled:!root.generation-running && !root.dirty;
+                            primary:true;
+                            clicked=>{
+                                root.generate-batch();
+                            }
+                        }
+                    }
+                    if root.on-battery : ActionButton {
+                        text:root.english ? "Generate on battery once" : "Создать от батареи один раз";
+                        enabled:!root.generation-running && !root.dirty;
+                        clicked=>{
+                            root.generate-on-battery();
+                        }
+                    }
+                    Hint {
+                        text:root.english ? "Save changes before starting. Prepare day follows the schedule." : "Сохрани настройки перед запуском. «Подготовить день» учитывает расписание.";
+                    }
+                }
+            }
+
+                    }
+                }
+            }
+        }
+    }
+
     changed delete-phrase-id=>{
         if(root.delete-phrase-id!=""){delete-popup.show();}else{delete-popup.close();}
     }
@@ -3541,6 +3479,14 @@ export component AppWindow inherits Window {
             width:root.width; height:root.height; english:root.english;
             cancel=>{root.delete-phrase-id="";}
             confirm=>{root.hide-phrase(root.delete-phrase-id);root.delete-phrase-id="";}
+        }
+    }
+    changed confirm-library-delete=>{if(root.confirm-library-delete){bulk-delete-popup.show();}else{bulk-delete-popup.close();}}
+    bulk-delete-popup := PopupWindow {
+        x:0px;y:0px;width:root.width;height:root.height;close-policy:no-auto-close;
+        RemovePhraseDialog {width:root.width;height:root.height;english:root.english;count:root.library-selected-count;
+            cancel=>{root.confirm-library-delete=false;}
+            confirm=>{if(root.library-selection==root.library-delete-selection){root.library-action("delete");}root.confirm-library-delete=false;}
         }
     }
     unsaved-popup := PopupWindow {

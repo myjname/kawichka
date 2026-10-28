@@ -573,6 +573,32 @@ impl Sandbox {
         }
         Ok(())
     }
+    /// All-or-nothing selection changes; unknown/stale IDs never partly mutate a batch.
+    pub fn change_phrases(&self, ids: &[String], keep: Option<bool>) -> Result<()> {
+        if ids.is_empty()
+            || ids.iter().collect::<std::collections::BTreeSet<_>>().len() != ids.len()
+        {
+            return Err(Error::Invalid("empty or duplicate phrase selection".into()));
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        let selection = serde_json::to_string(ids)?;
+        let count: i64 = tx.query_row("SELECT count(*) FROM phrases WHERE deleted=0 AND id IN (SELECT value FROM json_each(?1))", [&selection], |r| r.get(0))?;
+        if count as usize != ids.len() {
+            return Err(Error::Invalid(
+                "phrase selection changed; select again".into(),
+            ));
+        }
+        if let Some(keep) = keep {
+            tx.execute("UPDATE phrases SET approved=?2,rejected=?3 WHERE id IN (SELECT value FROM json_each(?1))", params![selection,keep,!keep])?;
+        } else {
+            tx.execute(
+                "UPDATE phrases SET deleted=1 WHERE id IN (SELECT value FROM json_each(?1))",
+                [&selection],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
     /// A stopped child owns only this flat audio staging folder. Logs are retained.
     pub fn cleanup_staging(&self, job: &Path) -> Result<()> {
         preview::no_link_chain(job)?;
@@ -1162,6 +1188,40 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bulk_changes_are_atomic_and_removal_keeps_text_and_playback_history() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let a = phrase();
+        let mut b = a.clone();
+        b.id = "second".into();
+        store.accept_phrase(&a, None).unwrap();
+        store.accept_phrase(&b, None).unwrap();
+        assert!(
+            store
+                .change_phrases(&[a.id.clone(), "missing".into()], None)
+                .is_err()
+        );
+        assert!(!store.phrase(&a.id).unwrap().deleted);
+        let ids = vec![a.id.clone(), b.id.clone()];
+        store.change_phrases(&ids, Some(false)).unwrap();
+        assert!(ids.iter().all(|id| store.phrase(id).unwrap().rejected));
+        store.change_phrases(&ids, Some(true)).unwrap();
+        store.connection.execute_batch("CREATE TRIGGER fail_bulk BEFORE UPDATE ON phrases WHEN NEW.id='second' AND NEW.deleted=1 BEGIN SELECT RAISE(ABORT,'bulk fixture');END;").unwrap();
+        assert!(store.change_phrases(&ids, None).is_err());
+        assert!(ids.iter().all(|id| !store.phrase(id).unwrap().deleted));
+        store
+            .connection
+            .execute_batch("DROP TRIGGER fail_bulk")
+            .unwrap();
+        store.change_phrases(&ids, None).unwrap();
+        for id in ids {
+            let row = store.phrase(&id).unwrap();
+            assert!(row.deleted);
+            assert_eq!(row.text, a.text);
+            assert!(row.used_at.is_none());
+        }
+    }
     #[test]
     fn copying_asset_never_truncates_a_neighbor_with_copying_extension() {
         let dir = temp();

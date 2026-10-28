@@ -33,7 +33,7 @@ pub fn load(store: &Sandbox, p: &Preferences, day: &str) -> Result<Day, String> 
     if let Some(raw) = store.meta("support_day").map_err(|e| e.to_string())? {
         validate_value("support_day", &raw)?;
         let saved: Day = serde_json::from_value(raw).map_err(|e| e.to_string())?;
-        if saved.identity == identity && valid(&saved.texts) {
+        if saved.identity == identity && (valid(&saved.texts) || saved.texts.is_empty()) {
             return Ok(saved);
         }
     }
@@ -99,7 +99,7 @@ pub fn validate_value(key: &str, value: &serde_json::Value) -> Result<(), String
         if day.format != 1
             || day.day.parse::<chrono::NaiveDate>().is_err()
             || day.identity.len() > 40000
-            || !valid(&day.texts)
+            || !(valid(&day.texts) || day.texts.is_empty() && day.attempted)
         {
             return Err("Invalid daily encouragement metadata".into());
         }
@@ -119,6 +119,38 @@ pub fn save(store: &Sandbox, day: &Day) -> Result<(), String> {
     store
         .put_meta("support_day", &json!(day))
         .map_err(|e| e.to_string())
+}
+/// Removing display texts keeps the anti-repeat history and does not refill today.
+pub fn remove(store: &Sandbox, day: &mut Day, texts: &[String]) -> Result<(), String> {
+    if texts.is_empty() || texts.iter().any(|t| !day.texts.contains(t)) {
+        return Err("Support selection changed; select again".into());
+    }
+    let mut next = day.clone();
+    next.texts.retain(|t| !texts.contains(t));
+    next.attempted = true;
+    validate_value("support_day", &json!(next))?;
+    let mut history = history(store)?;
+    for text in texts {
+        if !history.contains(text) {
+            history.push(text.clone());
+        }
+    }
+    if history.len() > 64 {
+        history.drain(..history.len() - 64);
+    }
+    let tx = store
+        .connection
+        .unchecked_transaction()
+        .map_err(|e| e.to_string())?;
+    for (key, value) in [
+        ("support_day", json!(next)),
+        ("support_history", json!(history)),
+    ] {
+        tx.execute("INSERT INTO library_meta VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET json=excluded.json",rusqlite::params![key,value.to_string()]).map_err(|e|e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    *day = next;
+    Ok(())
 }
 pub fn history(store: &Sandbox) -> Result<Vec<String>, String> {
     store
@@ -164,6 +196,18 @@ pub fn accept(store: &Sandbox, day: &mut Day, texts: Vec<String>) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn removing_all_support_stays_empty_after_restart_and_retains_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Sandbox::open(dir.path()).unwrap();
+        let prefs = Preferences::default();
+        let mut day = load(&store, &prefs, "2026-10-28").unwrap();
+        let texts = day.texts.clone();
+        remove(&store, &mut day, &texts).unwrap();
+        assert!(load(&store, &prefs, "2026-10-28").unwrap().texts.is_empty());
+        assert!(texts.iter().all(|t| history(&store).unwrap().contains(t)));
+        assert!(!load(&store, &prefs, "2026-10-29").unwrap().texts.is_empty());
+    }
     #[test]
     fn daily_support_survives_restart_and_never_creates_phrase_rows_or_audio() {
         let dir = tempfile::tempdir().unwrap();

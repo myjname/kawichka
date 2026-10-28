@@ -20,6 +20,10 @@ use std::{
 };
 type Events = Arc<Mutex<VecDeque<Box<dyn FnOnce() + Send>>>>;
 mod feedback;
+mod library_selection;
+pub fn verify_library_selection(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    library_selection::run(output)
+}
 mod update_context;
 pub fn verify_update_context(
     output: PathBuf,

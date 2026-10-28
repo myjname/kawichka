@@ -43,24 +43,9 @@ pub enum AnimationIntensity {
     Expressive,
 }
 impl AnimationIntensity {
-    /// Same gate for stock, GIF and atlas. No continuous animation in idle.
-    pub fn active(
-        self,
-        enabled: bool,
-        platform_allowed: bool,
-        paused: bool,
-        elapsed_ms: u64,
-        reaction: bool,
-    ) -> bool {
-        if !enabled || !platform_allowed || paused || self == Self::Off {
-            return false;
-        }
-        reaction
-            || match self {
-                Self::Subtle => elapsed_ms % 30_000 < 1_500,
-                Self::Expressive => elapsed_ms % 20_000 < 4_000,
-                Self::Off => false,
-            }
+    /// Compatibility gate for saved intensity choices, including legacy Off.
+    pub fn idle_active(self, enabled: bool, platform_allowed: bool, paused: bool) -> bool {
+        enabled && platform_allowed && !paused && self != Self::Off
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +58,9 @@ pub struct ReminderOptions {
     pub pet_visible: bool,
     pub animation: bool,
     pub animation_intensity: AnimationIntensity,
+    pub idle_continuous: bool,
+    pub idle_play_seconds: u16,
+    pub idle_pause_seconds: u16,
     /// Empty selects the system default. A missing pinned ID is never replaced.
     pub audio_device: String,
     pub audio: AudioMode,
@@ -89,11 +77,35 @@ impl Default for ReminderOptions {
             pet_visible: true,
             animation: true,
             animation_intensity: AnimationIntensity::Subtle,
+            idle_continuous: false,
+            idle_play_seconds: 5,
+            idle_pause_seconds: 30,
             audio_device: String::new(),
             audio: AudioMode::All,
             fullscreen_visual: VisualMode::Nothing,
             fullscreen_audio: AudioMode::Silent,
         }
+    }
+}
+impl ReminderOptions {
+    /// One policy for stock and custom mascots. Reactions bypass idle intervals,
+    /// but never bypass Off, application pause or the system motion policy.
+    pub fn animation_active(
+        &self,
+        platform_allowed: bool,
+        paused: bool,
+        elapsed_ms: u64,
+        reaction: bool,
+    ) -> bool {
+        if !self
+            .animation_intensity
+            .idle_active(self.animation, platform_allowed, paused)
+        {
+            return false;
+        }
+        let play = u64::from(self.idle_play_seconds) * 1000;
+        let pause = u64::from(self.idle_pause_seconds) * 1000;
+        reaction || self.idle_continuous || elapsed_ms % (play + pause).max(1) < play
     }
 }
 
@@ -199,6 +211,8 @@ impl Preferences {
             || self.user_name.chars().any(char::is_control)
             || self.reminders.audio_device.len() > 1024
             || self.reminders.audio_device.chars().any(char::is_control)
+            || !(1..=300).contains(&self.reminders.idle_play_seconds)
+            || !(1..=3600).contains(&self.reminders.idle_pause_seconds)
             || [
                 self.reminders.break_repeats,
                 self.reminders.exercise_repeats,
@@ -216,6 +230,78 @@ impl Preferences {
 #[cfg(test)]
 mod shell_options_tests {
     use super::*;
+    #[test]
+    fn configured_idle_cycle_reactions_and_hard_stops() {
+        let mut options = ReminderOptions {
+            idle_play_seconds: 7,
+            idle_pause_seconds: 13,
+            ..Default::default()
+        };
+        for (time, active) in [
+            (0, true),
+            (6999, true),
+            (7000, false),
+            (19999, false),
+            (20000, true),
+        ] {
+            assert_eq!(options.animation_active(true, false, time, false), active);
+        }
+        assert!(options.animation_active(true, false, 8000, true));
+        options.idle_continuous = true;
+        assert!(options.animation_active(true, false, 8000, false));
+        for continuous in [false, true] {
+            options.idle_continuous = continuous;
+            for reaction in [false, true] {
+                assert!(!options.animation_active(false, false, 0, reaction));
+                assert!(!options.animation_active(true, true, 0, reaction));
+                options.animation = false;
+                assert!(!options.animation_active(true, false, 0, reaction));
+                options.animation = true;
+                options.animation_intensity = AnimationIntensity::Off;
+                assert!(!options.animation_active(true, false, 0, reaction));
+                options.animation_intensity = AnimationIntensity::Subtle;
+            }
+        }
+    }
+    #[test]
+    fn idle_timing_defaults_migration_validation_and_roundtrip() {
+        let mut raw = serde_json::to_value(Preferences::default()).unwrap();
+        let reminders = raw["reminders"].as_object_mut().unwrap();
+        for field in ["idle_continuous", "idle_play_seconds", "idle_pause_seconds"] {
+            reminders.remove(field);
+        }
+        reminders.insert("animation_intensity".into(), "off".into());
+        let mut prefs: Preferences = serde_json::from_value(raw).unwrap();
+        assert!(!prefs.reminders.idle_continuous);
+        assert_eq!(prefs.reminders.idle_play_seconds, 5);
+        assert_eq!(prefs.reminders.idle_pause_seconds, 30);
+        assert!(!prefs.reminders.animation_active(true, false, 0, true));
+        for (play, pause) in [(0, 30), (301, 30), (5, 0), (5, 3601)] {
+            prefs.reminders.idle_play_seconds = play;
+            prefs.reminders.idle_pause_seconds = pause;
+            assert!(prefs.validate().is_err());
+        }
+        prefs.reminders.idle_play_seconds = 300;
+        prefs.reminders.idle_pause_seconds = 3600;
+        prefs.reminders.idle_continuous = true;
+        prefs.validate().unwrap();
+        let restored: Preferences =
+            serde_json::from_slice(&serde_json::to_vec(&prefs).unwrap()).unwrap();
+        assert_eq!(
+            serde_json::to_value(restored).unwrap(),
+            serde_json::to_value(prefs).unwrap()
+        );
+    }
+    #[test]
+    fn continuous_idle_respects_off_pause_and_platform_motion_policy() {
+        for mode in [AnimationIntensity::Subtle, AnimationIntensity::Expressive] {
+            assert!(mode.idle_active(true, true, false));
+            assert!(!mode.idle_active(false, true, false));
+            assert!(!mode.idle_active(true, false, false));
+            assert!(!mode.idle_active(true, true, true));
+        }
+        assert!(!AnimationIntensity::Off.idle_active(true, true, false));
+    }
     #[test]
     fn old_preferences_gain_safe_defaults_and_draft_preserves_new_choices() {
         let mut old = serde_json::to_value(Preferences::default()).unwrap();
@@ -253,17 +339,22 @@ mod shell_options_tests {
             AnimationIntensity::Subtle,
             AnimationIntensity::Expressive,
         ] {
+            let mut options = ReminderOptions {
+                animation_intensity: mode,
+                ..Default::default()
+            };
             for reaction in [false, true] {
-                assert!(!mode.active(true, false, false, 0, reaction));
-                assert!(!mode.active(true, true, true, 0, reaction));
-                assert!(!mode.active(false, true, false, 0, reaction));
+                assert!(!options.animation_active(false, false, 0, reaction));
+                assert!(!options.animation_active(true, true, 0, reaction));
+                options.animation = false;
+                assert!(!options.animation_active(true, false, 0, reaction));
+                options.animation = true;
             }
         }
-        assert!(!AnimationIntensity::Off.active(true, true, false, 0, true));
-        assert!(AnimationIntensity::Subtle.active(true, true, false, 0, false));
-        assert!(!AnimationIntensity::Subtle.active(true, true, false, 1500, false));
-        assert!(AnimationIntensity::Subtle.active(true, true, false, 1500, true));
-        assert!(!AnimationIntensity::Expressive.active(true, true, false, 4000, false));
+        let options = ReminderOptions::default();
+        assert!(options.animation_active(true, false, 0, false));
+        assert!(!options.animation_active(true, false, 5000, false));
+        assert!(options.animation_active(true, false, 5000, true));
     }
 }
 /// A settings draft must not overwrite unrelated tray changes made after it opened.

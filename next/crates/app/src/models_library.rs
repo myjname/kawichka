@@ -353,6 +353,12 @@ impl Manager {
         self.library_page = page;
         self.invalidate();
     }
+    pub fn remove_support(&mut self, store: &Sandbox, ids: &[String]) -> Result<(), String> {
+        kavychka_storage::support::remove(store, &mut self.support, ids)?;
+        self.status = "Поддержка удалена из списка / Support removed from list".into();
+        self.invalidate();
+        Ok(())
+    }
     pub fn browse_archive(&mut self, page: usize) {
         self.archive_page = page;
         self.invalidate();
@@ -458,7 +464,7 @@ impl Manager {
                     )
                     .map_err(|e| e.to_string())?
                 } else if kind == "visual" {
-                    crate::visuals::validate(&path, "auto")?;
+                    crate::visuals::validate(&path, "smooth")?;
                     let p = Preset {
                         version: 1,
                         name: path
@@ -474,7 +480,7 @@ impl Manager {
                                 .ok_or("missing visual filename")?
                                 .to_string_lossy()
                                 .into(),
-                            layout: "auto".into(),
+                            layout: "smooth".into(),
                         },
                     };
                     presets::import_prepared(&store.root, &p, path.parent())
@@ -760,6 +766,20 @@ impl Manager {
         clock: Clock,
         id: Option<&str>,
     ) -> Result<(), String> {
+        self.speech_selected(
+            store,
+            prefs,
+            clock,
+            id.map(|s| vec![s.to_owned()]).as_deref(),
+        )
+    }
+    pub fn speech_selected(
+        &mut self,
+        store: &mut Sandbox,
+        prefs: &Preferences,
+        clock: Clock,
+        ids: Option<&[String]>,
+    ) -> Result<(), String> {
         let mut voice_only = prefs.clone();
         voice_only.generation.text_enabled = false;
         self.require_models(store, &voice_only)?;
@@ -768,10 +788,10 @@ impl Manager {
             .iter()
             .filter(|r| {
                 !r.deleted
-                    && !r.rejected
-                    && id.map_or(r.day.as_deref() == Some(&clock.date.to_string()), |id| {
-                        r.id == id
-                    })
+                    && ids.map_or(
+                        !r.rejected && r.day.as_deref() == Some(&clock.date.to_string()),
+                        |ids| ids.contains(&r.id),
+                    )
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -804,7 +824,20 @@ impl Manager {
         prefs: &Preferences,
         clock: Clock,
     ) -> Result<(), String> {
+        self.export_selected(store, prefs, clock, None)
+    }
+    pub fn export_selected(
+        &mut self,
+        store: &Sandbox,
+        prefs: &Preferences,
+        clock: Clock,
+        ids: Option<&[String]>,
+    ) -> Result<(), String> {
         let rows = store.phrases().map_err(|e| e.to_string())?;
+        let rows = rows
+            .into_iter()
+            .filter(|r| !r.deleted && ids.is_none_or(|ids| ids.contains(&r.id)))
+            .collect::<Vec<_>>();
         let mut request = inference::request(prefs, &rows, "export", &clock.date.to_string());
         request["rows"] = json!(rows);
         self.start(store, request, "export")
@@ -1762,6 +1795,37 @@ fn daily_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn importing_an_ordinary_image_keeps_its_bytes_and_selects_smooth_rendering() {
+        let temp = temp();
+        let mut store = Sandbox::open(&temp.path().join("data")).unwrap();
+        let source = temp.path().join("ordinary.png");
+        let original = image::RgbaImage::from_fn(16, 16, |x, y| {
+            image::Rgba([((x + y) % 2 * 200) as u8, 40, 90, 255])
+        });
+        original.save(&source).unwrap();
+        let bytes = std::fs::read(&source).unwrap();
+        let prefs = store.load().unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        manager
+            .preset_action(
+                &store,
+                &prefs,
+                crate::presets_ui::Action::Import(source, "visual".into(), String::new()),
+            )
+            .unwrap();
+        let preset =
+            kavychka_storage::presets::read(&store.root, &manager.imported_preset).unwrap();
+        let (file, layout) = preset.content.visual().unwrap();
+        assert_eq!(layout, "smooth");
+        let copied = kavychka_storage::presets::folder(&store.root, &manager.imported_preset)
+            .unwrap()
+            .join(file);
+        assert_eq!(std::fs::read(&copied).unwrap(), bytes);
+        let decoded = crate::visuals::load(&copied, layout).unwrap();
+        assert!(!decoded.pixelated);
+        assert_eq!(decoded.frames[0].0, original);
+    }
     #[test]
     fn missing_models_do_not_erase_install_failure_or_cancellation_details() {
         for cancelled in [false, true] {

@@ -45,6 +45,7 @@ pub enum Command {
     RegenerateSpeech(Option<String>),
     SelectPhrase(String, bool),
     HidePhrase(String),
+    LibrarySelection(crate::library_actions::Selection, String),
     PlayPhrase(String),
     PrepareModels(
         Box<kavychka_core::generation::Generation>,
@@ -373,6 +374,7 @@ impl Backend {
                                 | Command::RegenerateSpeech(_)
                                 | Command::SelectPhrase(..)
                                 | Command::HidePhrase(_)
+                                | Command::LibrarySelection(..)
                                 | Command::PlayPhrase(_)
                                 | Command::PrepareModels(..)
                                 | Command::RepairEnvironment
@@ -590,6 +592,93 @@ impl Backend {
                                 Command::SelectPhrase(id, keep) => {
                                     store.select_phrase(&id, keep).map_err(|e| e.to_string())?;
                                     library.invalidate();
+                                }
+                                Command::LibrarySelection(selection, action) => {
+                                    selection.validate(&clock.date.to_string(), &action)?;
+                                    if action != "all" && (library.running() || library.waiting()) {
+                                        return Err(
+                                            "Дождись текущей задачи / Wait for the current task"
+                                                .into(),
+                                        );
+                                    }
+                                    let available = if selection.group == "support" {
+                                        crate::support::load(
+                                            &store,
+                                            &candidate.prefs,
+                                            &selection.day,
+                                        )?
+                                        .texts
+                                    } else {
+                                        store
+                                            .phrases()
+                                            .map_err(|e| e.to_string())?
+                                            .into_iter()
+                                            .filter(|r| {
+                                                !r.deleted
+                                                    && ((r.day.as_deref()
+                                                        == Some(selection.day.as_str()))
+                                                        == (selection.group == "current"))
+                                            })
+                                            .map(|r| r.id)
+                                            .collect()
+                                    };
+                                    if action == "all" {
+                                        let _ = ui.upgrade_in_event_loop(move |ui| {
+                                            crate::library_actions::accept_all(
+                                                &ui, &selection, available,
+                                            )
+                                        });
+                                    } else {
+                                        if selection.ids.iter().any(|id| !available.contains(id)) {
+                                            return Err("Список изменился. Выбери фразы заново / List changed; select again".into());
+                                        }
+                                        let ids = selection.ids.iter().cloned().collect::<Vec<_>>();
+                                        match action.as_str() {
+                                            "delete" if selection.group == "support" => {
+                                                library.remove_support(&store, &ids)?
+                                            }
+                                            "delete" => {
+                                                store
+                                                    .change_phrases(&ids, None)
+                                                    .map_err(|e| e.to_string())?;
+                                                library.status = format!(
+                                                    "Удалено из списка: {}. Тексты сохранены для защиты от повторов / Removed; anti-repeat text retained",
+                                                    ids.len()
+                                                );
+                                            }
+                                            "keep" | "exclude" => {
+                                                store
+                                                    .change_phrases(&ids, Some(action == "keep"))
+                                                    .map_err(|e| e.to_string())?;
+                                                library.status = format!(
+                                                    "Обработано фраз / Phrases updated: {}",
+                                                    ids.len()
+                                                );
+                                            }
+                                            "speech" => {
+                                                check_generation(&candidate, clock, env, false)?;
+                                                library.speech_selected(
+                                                    &mut store,
+                                                    &candidate.prefs,
+                                                    clock,
+                                                    Some(&ids),
+                                                )?;
+                                            }
+                                            "export" => library.export_selected(
+                                                &store,
+                                                &candidate.prefs,
+                                                clock,
+                                                Some(&ids),
+                                            )?,
+                                            _ => return Err("Unknown library action".into()),
+                                        }
+                                        library.invalidate();
+                                        let _ = ui.upgrade_in_event_loop(move |ui| {
+                                            crate::library_actions::clear_if_unchanged(
+                                                &ui, &selection,
+                                            )
+                                        });
+                                    }
                                 }
                                 Command::PlayPhrase(id) => {
                                     let row = store.phrase(&id).map_err(|e| e.to_string())?;

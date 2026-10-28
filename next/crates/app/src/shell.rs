@@ -302,13 +302,11 @@ impl Shell {
             .happy_until
             .get()
             .is_some_and(|until| until > std::time::Instant::now());
-        let reaction = view.audio_busy || happy;
-        let active = view.prefs.reminders.animation_intensity.active(
-            view.prefs.reminders.animation,
+        let active = view.prefs.reminders.animation_active(
             desktop::animation_allowed(),
             view.paused,
             elapsed,
-            reaction,
+            view.audio_busy || happy,
         );
         let index = frames.index(
             elapsed,
@@ -684,18 +682,21 @@ impl Shell {
                 });
             }
         }
-        if prior
-            .as_ref()
-            .is_none_or(|p| p.prefs.desktop.pet_size != view.prefs.desktop.pet_size)
-        {
+        let pet_geometry_changed = prior.as_ref().is_none_or(|p| {
+            p.prefs.desktop.pet_size != view.prefs.desktop.pet_size || p.paused != view.paused
+        });
+        self.pet.set_paused(view.paused);
+        if pet_geometry_changed {
             self.pet.window().set_size(slint::LogicalSize::new(
                 f32::from(view.prefs.desktop.pet_size),
-                f32::from(view.prefs.desktop.pet_size),
+                crate::visuals::Frames::window_height(
+                    f32::from(view.prefs.desktop.pet_size),
+                    view.paused,
+                ),
             ));
         }
         let en = view.prefs.ui_language == Language::En;
         self.pet.set_english(en);
-        self.pet.set_paused(view.paused);
         self.pet.set_countdown(view.countdown.as_str().into());
         self.pet.set_pending(view.pending as i32);
         self.message.set_english(en);
@@ -732,6 +733,9 @@ impl Shell {
                         .is_none_or(|v| v.pet_position != view.pet_position)
                 {
                     let _ = desktop::place(hwnd, view.pet_position);
+                } else if pet_geometry_changed {
+                    let p = self.pet.window().position();
+                    let _ = desktop::place(hwnd, Some((p.x, p.y)));
                 }
             }
         } else {
@@ -788,8 +792,7 @@ impl Shell {
                 != Some(&notice.key)
             {
                 self.pet
-                    .set_attention(view.prefs.reminders.animation_intensity.active(
-                        view.prefs.reminders.animation,
+                    .set_attention(view.prefs.reminders.animation_active(
                         desktop::animation_allowed(),
                         view.paused,
                         0,
@@ -814,8 +817,7 @@ impl Shell {
         let ticks = self.ticks.get() + 1;
         self.ticks.set(ticks);
         let animation = self.view.borrow().as_ref().is_some_and(|v| {
-            v.prefs.reminders.animation_intensity.active(
-                v.prefs.reminders.animation,
+            v.prefs.reminders.animation_active(
                 desktop::animation_allowed(),
                 v.paused,
                 self.visual_started.elapsed().as_millis() as u64,

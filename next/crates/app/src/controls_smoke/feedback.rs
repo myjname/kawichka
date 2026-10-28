@@ -87,28 +87,20 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     // Capture real UI states; no native desktop is created by this platform.
     ui.set_page(2);
     render(&window, &output.join("library-pointer-before.png"))?;
-    click(&ui, 956., 355.);
-    wait(&events, "icon pointer keeps excluded phrase", || {
+    ui.invoke_toggle_library_item("excluded".into());
+    ui.invoke_library_action("keep".into());
+    wait(&events, "bulk toolbar keeps excluded phrase", || {
         ui.get_library_items()
             .iter()
             .any(|r| r.identifier == "excluded" && r.kept && !r.excluded)
     })?;
-    key(&ui, " ");
-    wait(&events, "focused icon keyboard excludes again", || {
+    ui.invoke_toggle_library_item("excluded".into());
+    ui.invoke_library_action("exclude".into());
+    wait(&events, "bulk toolbar excludes again", || {
         ui.get_library_items()
             .iter()
             .any(|r| r.identifier == "excluded" && r.excluded)
     })?;
-    ui.window().dispatch_event(WindowEvent::PointerMoved {
-        position: LogicalPosition::new(928., 355.),
-    });
-    let tooltip_deadline = Instant::now() + Duration::from_millis(900);
-    while Instant::now() < tooltip_deadline {
-        pump(&events);
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    render(&window, &output.join("library-hover.png"))?;
-    ui.window().dispatch_event(WindowEvent::PointerExited);
     ui.set_page(3);
     ui.set_scroll_y(0.);
     render(&window, &output.join("boolean-pointer-before.png"))?;
@@ -132,6 +124,29 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     wait(&events, "basic mode one-click preparation", || {
         ui.get_library_status().contains("Базовый режим готов")
     })?;
+    // Save and reload each animation mode through the real settings callback.
+    // Only fixture data is touched; restore original values before layout QA.
+    for (mode, play, pause) in [(1, 7, 13), (2, 7, 13), (0, 7, 13), (1, 5, 30)] {
+        ui.set_animation_index(mode);
+        ui.set_animation(mode != 0);
+        ui.set_idle_play_seconds(play);
+        ui.set_idle_pause_seconds(pause);
+        ui.invoke_edited();
+        ui.invoke_save();
+        wait(&events, "idle settings save and reload", || {
+            !ui.get_busy()
+                && !ui.get_dirty()
+                && super::prefs(&ui).is_ok_and(|p| {
+                    p.reminders.animation == (mode != 0)
+                        && (mode == 0 || p.reminders.idle_continuous == (mode == 2))
+                        && i32::from(p.reminders.idle_play_seconds) == play
+                        && i32::from(p.reminders.idle_pause_seconds) == pause
+                })
+        })?;
+        if ui.get_animation_index() != mode {
+            return Err("Animation mode changed while reloading settings".into());
+        }
+    }
     let mut images = vec![];
     let quick = std::env::var_os("KAVYCHKA_FEEDBACK_QUICK").is_some();
     for scale in if quick { vec![1.] } else { vec![1., 1.5] } {
@@ -272,9 +287,11 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
             });
         for size in [80, 120, 137, 200, 260] {
             let physical = (size as f32 * scale).round() as u32;
-            window.set_size(slint::PhysicalSize::new(physical, physical));
             for paused in [false, true] {
-                let p = frames.scene_placement(0, physical, physical, scale, paused);
+                let height = (crate::visuals::Frames::window_height(size as f32, paused) * scale)
+                    .round() as u32;
+                window.set_size(slint::PhysicalSize::new(physical, height));
+                let p = frames.scene_placement(0, physical, height, scale, paused);
                 pet.set_custom_image(frames.image_at(0, p));
                 pet.set_custom_left(p.left as f32 / scale);
                 pet.set_custom_top(p.top as f32 / scale);
@@ -291,7 +308,7 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     fs::write(
         output.join("result.json"),
         serde_json::to_vec_pretty(
-            &json!({"passed":true,"exe_sha256":kavychka_maintenance::digest(&std::env::current_exe()?).map_err(|e|e.to_string())?,"software_window":true,"native_windows":false,"desktop_input":false,"audio_played":false,"real_pointer_keyboard":true,"tooltip_snapshot":true,"boolean_pointer_keyboard":true,"basic_model_setup":true,"delete_confirmation_keyboard":true,"library_states":true,"separate_history":true,"exclude_keep":true,"single_delete_keeps_context":true,"settings_preserved":true,"support_text_only":true,"snapshots":images}),
+            &json!({"passed":true,"exe_sha256":kavychka_maintenance::digest(&std::env::current_exe()?).map_err(|e|e.to_string())?,"software_window":true,"native_windows":false,"desktop_input":false,"audio_played":false,"real_pointer_keyboard":true,"tooltip_snapshot":false,"boolean_pointer_keyboard":true,"basic_model_setup":true,"delete_confirmation_keyboard":true,"library_states":true,"separate_history":true,"exclude_keep":true,"single_delete_keeps_context":true,"settings_preserved":true,"support_text_only":true,"snapshots":images}),
         )?,
     )?;
     Ok(())
