@@ -135,6 +135,52 @@ fn portable_folder_move_update_and_rollback_keep_owned_paths_and_external_models
     assert!(!bundle.exists());
     assert!(!t.path().join("Kavychka-next-install.json").exists());
 }
+
+#[cfg(windows)]
+#[test]
+fn update_accepts_the_same_storage_with_either_windows_prefix_and_rejects_other_storage() {
+    for canonical_first in [true, false] {
+        let t = temp();
+        let root = t.path().join("program");
+        let ordinary = t.path().join("data");
+        std::fs::create_dir(&ordinary).unwrap();
+        let canonical = ordinary.canonicalize().unwrap();
+        assert_ne!(ordinary, canonical);
+        let (first, next) = if canonical_first {
+            (&canonical, &ordinary)
+        } else {
+            (&ordinary, &canonical)
+        };
+        let v1 = package(t.path(), "0.1.0");
+        let v2 = package(t.path(), "0.2.0");
+        let v3 = package(t.path(), "0.3.0");
+        apply(&root, first, &v1, probe).unwrap();
+        let old = current(&root).unwrap().unwrap();
+        let before = {
+            let s = kavychka_storage::sandbox::Sandbox::open(&old.data).unwrap();
+            serde_json::to_value(s.load().unwrap()).unwrap()
+        };
+        apply(&root, next, &v2, |_, _| Ok(())).unwrap();
+        let updated = current(&root).unwrap().unwrap();
+        assert_eq!(updated.version, "0.2.0");
+        assert_eq!(updated.common.canonicalize().unwrap(), canonical);
+        {
+            let s = kavychka_storage::sandbox::Sandbox::open(&updated.data).unwrap();
+            assert_eq!(serde_json::to_value(s.load().unwrap()).unwrap(), before);
+        }
+        let other = t.path().join("data-other");
+        let error = apply(&root, &other, &v3, |_, _| Ok(())).unwrap_err();
+        assert!(error.to_string().contains("existing data folder"));
+        assert!(!other.exists());
+        assert_eq!(current(&root).unwrap().unwrap().version, "0.2.0");
+        rollback(&root).unwrap();
+        let restored = current(&root).unwrap().unwrap();
+        assert_eq!(restored.version, "0.1.0");
+        assert_eq!(restored.common.canonicalize().unwrap(), canonical);
+        let s = kavychka_storage::sandbox::Sandbox::open(&restored.data).unwrap();
+        assert_eq!(serde_json::to_value(s.load().unwrap()).unwrap(), before);
+    }
+}
 #[test]
 fn reviewed_removal_preserves_data_external_models_and_reinstall_then_full_is_explicit() {
     let t = temp();

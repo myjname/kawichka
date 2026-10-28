@@ -598,7 +598,7 @@ pub fn apply_with_source(
     let manifest = package::manifest(setup)?;
     let old = current(root)?;
     if let Some(old) = &old {
-        if old.common != common {
+        if resolved(&old.common)? != resolved(common)? {
             return Err("update must keep the existing data folder".into());
         }
         if package::version(&manifest.version)? <= package::version(&old.version)? {
