@@ -29,6 +29,7 @@ pub enum Command {
     Presented(String),
     Breakfast,
     Stretch,
+    CancelStretch,
     Pause(i32),
     Review,
     Silence,
@@ -67,7 +68,7 @@ pub enum Command {
     },
     Stop,
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeView {
     #[serde(default)]
     pub presentation_requests: u64,
@@ -83,6 +84,8 @@ pub struct RuntimeView {
     pub next: String,
     pub status: String,
     pub breakfast_done: bool,
+    #[serde(default)]
+    pub exercise_active: bool,
     pub pet_position: Option<(i32, i32)>,
     pub pet_permitted: bool,
     pub animation: bool,
@@ -217,8 +220,10 @@ impl Backend {
                     crate::p4_crash::hit("recovery_after_checkpoint");
                 }
                 publish(&ui, Ok(engine.prefs.clone()), false);
-                let mut stored = serde_json::to_string(&engine.state).map_err(|e| e.to_string())?;
-                let mut last_view = String::new();
+                // Last successfully committed checkpoint. Comparing typed data
+                // avoids formatting the full reminder history on every idle tick.
+                let mut stored_state = engine.state.clone();
+                let mut last_view: Option<RuntimeView> = None;
                 let mut revision = 0;
                 let mut presentation_requests = 0u64;
                 let mut audio_stop_requests = 0u64;
@@ -286,11 +291,10 @@ impl Backend {
                             store
                                 .save_runtime(&engine.prefs, &engine.state)
                                 .map_err(|e| e.to_string())?;
-                            stored =
-                                serde_json::to_string(&engine.state).map_err(|e| e.to_string())?;
+                            stored_state = engine.state.clone();
                             library = Manager::new(&mut store, None, stop.clone())?;
                             library.cancellation = user_cancellation.clone();
-                            last_view.clear();
+                            last_view = None;
                             publish(&ui, Ok(engine.prefs.clone()), false);
                             let _ = ui.upgrade_in_event_loop(|ui| {
                                 ui.set_profile_operation_index(1);
@@ -523,6 +527,7 @@ impl Backend {
                                     }
                                 }
                                 Command::Breakfast => candidate.breakfast(clock)?,
+                                Command::CancelStretch => effect = candidate.cancel_stretch(clock),
                                 Command::Stretch => {
                                     if !env.session_blocked() {
                                         effect = candidate.manual_stretch(clock);
@@ -568,7 +573,7 @@ impl Backend {
                                 }
                                 Command::PrepareDay => {
                                     check_generation(&candidate, clock, env, false)?;
-                                    library.resume_preparation();
+                                    library.resume_preparation(clock);
                                     library.generate(&mut store, &candidate.prefs, clock, true)?;
                                 }
                                 Command::GenerateBatch => {
@@ -850,12 +855,8 @@ impl Backend {
                     {
                         candidate.state.checkpoint_utc = Some(clock.utc);
                     }
-                    let serialized =
-                        serde_json::to_string(&candidate.state).map_err(|e| e.to_string())?;
-                    let prefs_changed = serde_json::to_value(&candidate.prefs)
-                        .map_err(|e| e.to_string())?
-                        != serde_json::to_value(&engine.prefs).map_err(|e| e.to_string())?;
-                    if serialized != stored
+                    let prefs_changed = candidate.prefs != engine.prefs;
+                    if candidate.state != stored_state
                         || !candidate.archived_pending.is_empty()
                         || prefs_changed
                         || preferences_reply.is_some_and(|saved| saved)
@@ -893,7 +894,7 @@ impl Backend {
                             publish(&ui, Err(error.to_string()), false);
                             continue;
                         }
-                        stored = serialized;
+                        stored_state = candidate.state.clone();
                         if !candidate.archived_pending.is_empty() {
                             library.invalidate();
                             candidate.archived_pending.clear();
@@ -1042,12 +1043,14 @@ impl Backend {
                         }
                         view.presentation_requests = presentation_requests;
                         view.audio_stop_requests = audio_stop_requests;
-                        // Ignore revision for change detection: an idle service posts no UI work.
-                        let json = serde_json::to_string(&view).map_err(|e| e.to_string())?;
-                        if json != last_view {
-                            last_view = json;
+                        // Revision is transport bookkeeping, not a UI change.
+                        // Serialize only changed views, not every idle tick.
+                        view.revision = 0;
+                        if last_view.as_ref() != Some(&view) {
                             view.revision = revision;
                             let json = serde_json::to_string(&view).map_err(|e| e.to_string())?;
+                            view.revision = 0;
+                            last_view = Some(view);
                             let _ = ui.upgrade_in_event_loop(move |ui| {
                                 ui.invoke_runtime_update(json.into())
                             });
@@ -1265,6 +1268,7 @@ fn view(
         next,
         status,
         breakfast_done: engine.state.breakfast_dates.contains(&clock.date),
+        exercise_active: engine.exercise_active(),
         pet_position: engine.state.pet_position,
         pet_permitted: !env.session_blocked()
             && !env.notifications_blocked(engine.prefs.reminders.allow_during_dnd)

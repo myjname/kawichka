@@ -15,6 +15,11 @@ from kavychka_local.downloads import BUILD_TOOLS, SITE_OWNER, Cancelled, Compone
 
 class InstallerTests(unittest.TestCase):
     def setUp(self):
+        # Production installs run in a fresh worker. Earlier attention tests can
+        # load Torch into this unittest process; isolate that precondition here.
+        modules = patch.dict(sys.modules)
+        modules.start(); self.addCleanup(modules.stop)
+        sys.modules.pop("torch", None)
         self.temp = tempfile.TemporaryDirectory(dir=ROOT / "work")
         self.root = Path(self.temp.name)
         self.components = Components(ROOT, self.root, None)
@@ -25,6 +30,15 @@ class InstallerTests(unittest.TestCase):
         for fixture in (patch.object(self.components, "runtime_python", return_value=sys.executable),
                         patch("kavychka_local.qwen_package.build", return_value=stub)):
             fixture.start(); self.addCleanup(fixture.stop)
+
+    def test_loaded_torch_refuses_install_before_touching_the_environment(self):
+        marker = self.root / "runtime-ok.json"
+        marker.write_text("retained marker")
+        with patch.dict(sys.modules, {"torch": object()}), patch.object(self.components, "run_install") as run:
+            with self.assertRaisesRegex(ValueError, "перезапустите"):
+                self.components.install_runtime(self.event, self.progress, False)
+        run.assert_not_called()
+        self.assertEqual(marker.read_text(), "retained marker")
 
     def tearDown(self):
         self.temp.cleanup()

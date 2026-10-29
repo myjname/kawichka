@@ -64,7 +64,7 @@ pub struct Notice {
     pub visible: bool,
     pub explicit: bool,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SavedCycle {
     pub events: Vec<Event>,
@@ -75,7 +75,7 @@ pub struct SavedCycle {
     pub finished: bool,
     pub hidden: bool,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct State {
     pub format: u32,
@@ -360,6 +360,42 @@ impl Engine {
             self.sync_cycle(index, clock);
         }
         Ok(())
+    }
+    pub fn exercise_active(&self) -> bool {
+        self.state
+            .exercise
+            .iter()
+            .chain(self.scheduled.iter())
+            .any(|e| {
+                e.category == Category::Exercise
+                    && !self.state.handled.contains_key(&e.id)
+                    && !self.state.skipped.contains_key(&e.id)
+            })
+            || self
+                .state
+                .pending
+                .iter()
+                .any(|n| n.events.iter().any(|e| e.category == Category::Exercise))
+            || self
+                .state
+                .cycles
+                .iter()
+                .any(|c| !c.finished && c.events.iter().any(|e| e.category == Category::Exercise))
+    }
+    pub fn cancel_stretch(&mut self, clock: Clock) -> Effect {
+        // Audio may be enabled even when fullscreen policy hides the visual.
+        let stop_audio = self
+            .state
+            .pending
+            .iter()
+            .rev()
+            .find(|n| n.visible)
+            .is_some_and(|n| n.events.iter().any(|e| e.category == Category::Exercise));
+        self.cancel_exercise(clock, true);
+        Effect {
+            stop_audio,
+            ..Default::default()
+        }
     }
     pub fn manual_stretch(&mut self, clock: Clock) -> Effect {
         self.state.manual_serial = self.state.manual_serial.saturating_add(1);

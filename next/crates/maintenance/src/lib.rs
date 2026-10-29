@@ -72,6 +72,10 @@ pub fn clean_path(root: &Path, name: &str) -> Result<std::path::PathBuf> {
     Ok(p)
 }
 pub fn delete_owned_tree(path: &Path, base: &Path) -> Result<()> {
+    // Check the supplied paths before canonicalize erases junction/reparse
+    // components and could turn cleanup of a stage into deletion of its target.
+    kavychka_storage::preview::no_link_chain(path)?;
+    kavychka_storage::preview::no_link_chain(base)?;
     let path = path.canonicalize()?;
     let base = base.canonicalize()?;
     if path == base || !path.starts_with(&base) {

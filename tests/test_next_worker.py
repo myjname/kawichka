@@ -12,6 +12,47 @@ worker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(worker)
 
 class WorkerContractTests(unittest.TestCase):
+    def test_llama_environment_fallback_uses_the_qualified_executable(self):
+        import json
+        from kavychka_local.engine import Engine
+        cases = [('obsolete', False, True, False, False),
+                 ('current-cpu', False, False, False, False),
+                 ('current-cpu', False, True, True, True),
+                 ('current-cpu', False, True, False, False)]
+        for revision, own_gpu, own_executable, external_gpu, want_gpu in cases:
+            with self.subTest(revision=revision, own_executable=own_executable,
+                              external_gpu=external_gpu, want_gpu=want_gpu), tempfile.TemporaryDirectory(dir=ROOT/'work') as directory:
+                base = Path(directory)
+                app, library, external = base/'app', base/'library', base/'external'
+                job, managed = library/'jobs/job-test', library/'components'
+                job.mkdir(parents=True)
+                (app/'assets').mkdir(parents=True)
+                manifest = dict(models={}, llama_cpu_runtime=dict(revision='current-cpu'),
+                                llama_runtime=dict(revision='current-gpu'))
+                (app/'assets/components.json').write_text(json.dumps(manifest))
+                required = ['ggml-base.dll', 'ggml-cpu-x64.dll', 'ggml.dll', 'llama.dll',
+                            'llama-common.dll', 'llama-server-impl.dll', 'libomp.dll']
+                for runtime, saved_revision, gpu, executable in [
+                        (managed, revision, own_gpu, own_executable),
+                        (external, 'current-gpu' if external_gpu else 'current-cpu', external_gpu, True)]:
+                    folder = runtime/'llama'
+                    folder.mkdir(parents=True)
+                    for name in required + (['ggml-cuda.dll', 'cublas64_13.dll', 'cublasLt64_13.dll'] if gpu else []) + (['llama-server.exe'] if executable else []):
+                        (folder/name).write_bytes(b'fixture; never executed')
+                    (folder/'verified.json').write_text(json.dumps(dict(revision=saved_revision, gpu=gpu)))
+                captured = []
+                def capture(engine, app, store, components):
+                    captured.append(components)
+                request = dict(operation='generate', work_dir=str(job), library_root=str(library),
+                               components_root=str(external), settings=dict(device='cuda' if want_gpu else 'cpu', tts_model='system'), tasks=[])
+                with patch.object(worker, 'APP', app), patch.object(Engine, '__init__', capture), patch.object(Engine, 'unload'), patch.object(worker, 'emit'):
+                    worker.run(request)
+                    catalog = captured[0]
+                    self.assertTrue(catalog.llama_ready(gpu=want_gpu))
+                    own_ready = revision == 'current-cpu' and own_executable and not want_gpu
+                    expected = (managed if own_ready else external)/'llama/llama-server.exe'
+                    self.assertEqual(catalog.llama_executable(), expected)
+
     def test_encouragement_is_text_only_and_never_publishes_phrase_or_audio(self):
         from kavychka_local.engine import Engine
         with tempfile.TemporaryDirectory(dir=ROOT / 'work') as directory:

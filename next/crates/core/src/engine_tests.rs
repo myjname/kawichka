@@ -1,5 +1,55 @@
 use super::*;
 #[test]
+fn completed_breakfast_stretch_does_not_leave_cancel_enabled_for_a_stale_timer() {
+    let mut e = engine();
+    e.prefs.trust_confirmation = true;
+    e.prefs.schedule.exercise_after_minutes = 1;
+    e.breakfast(clock(0)).unwrap();
+    assert!(e.exercise_active());
+    let notice = tick(&mut e, 61).announce.unwrap();
+    assert!(e.exercise_active());
+    e.confirm(&notice.key, clock(62)).unwrap();
+    assert!(!e.exercise_active());
+}
+#[test]
+fn cancel_stretch_stops_manual_series_and_breakfast_timer_and_survives_restart() {
+    let mut e = engine();
+    e.breakfast(clock(0)).unwrap();
+    assert!(e.state.exercise.is_some());
+    let first = e.manual_stretch(clock(1)).announce.unwrap();
+    assert!(e.exercise_active());
+    assert!(e.cancel_stretch(clock(2)).stop_audio);
+    assert!(!e.exercise_active());
+    assert!(e.state.pending.is_empty());
+    assert!(e.state.cycles.iter().all(|c| c.finished));
+    assert!(e.prefs.schedule.exercise_enabled);
+    assert!(e.state.breakfast_dates.contains(&clock(0).date));
+    let state: State = serde_json::from_str(&serde_json::to_string(&e.state).unwrap()).unwrap();
+    let mut resumed = Engine::new(e.prefs.clone(), state, clock(3)).unwrap();
+    assert!(!resumed.exercise_active());
+    assert!(tick(&mut resumed, 61).announce.is_none());
+    assert!(tick(&mut resumed, 7201).announce.is_none());
+    resumed.confirm(&first.key, clock(7202)).unwrap();
+    assert!(!resumed.exercise_active());
+    assert!(resumed.manual_stretch(clock(7203)).announce.is_some());
+    assert!(resumed.exercise_active());
+}
+#[test]
+fn cancel_stretch_preserves_unrelated_notifications_and_hidden_series_end() {
+    let mut e = engine();
+    e.schedule(vec![event(Category::Lunch, "meal", 0)], clock(0), false);
+    let meal = tick(&mut e, 0).announce.unwrap();
+    let exercise = e.manual_stretch(clock(1)).announce.unwrap();
+    e.confirm(&exercise.key, clock(2)).unwrap();
+    assert!(e.exercise_active());
+    // The still-visible meal is independent and its sound must not be stopped.
+    assert!(!e.cancel_stretch(clock(3)).stop_audio);
+    assert!(!e.exercise_active());
+    assert_eq!(e.state.pending.len(), 1);
+    assert_eq!(e.state.pending[0].key, meal.key);
+    assert!(tick(&mut e, 62).announce.is_none());
+}
+#[test]
 fn disabling_exercise_ends_pending_and_repeats_but_manual_still_works() {
     let mut e = engine();
     e.schedule(

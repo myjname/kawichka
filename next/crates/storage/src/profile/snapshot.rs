@@ -170,6 +170,8 @@ pub(crate) fn read(path: &Path) -> Result<Snapshot> {
             }
             .validate()
             .map_err(invalid)?;
+        } else if key == "preparation_state" || key == "legacy_preparation_states" {
+            kavychka_core::preparation::validate_meta(&key, &value).map_err(invalid)?;
         } else if key == "support_day" || key == "support_history" {
             crate::support::validate_value(&key, &value).map_err(invalid)?;
         } else if key.starts_with("delivery_journal:") {

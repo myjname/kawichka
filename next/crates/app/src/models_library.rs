@@ -81,7 +81,7 @@ pub enum Preview {
 }
 pub struct Manager {
     support: crate::support::Day,
-    support_check: Option<std::time::Instant>,
+    support_preferences: Option<Preferences>,
     support_index: usize,
     imported_preset: String,
     imported_applied: bool,
@@ -102,6 +102,10 @@ pub struct Manager {
     runtime_request: Option<Value>,
     auto_attempts: u32,
     auto_date: String,
+    audio_date: Option<String>,
+    daily_complete: bool,
+    support_complete: bool,
+    daily_final: bool,
     auto_cancelled_day: Option<String>,
     last_publish: String,
     pub cancellation: Arc<AtomicBool>,
@@ -213,9 +217,20 @@ impl Manager {
                     })
             });
         let saved = saved.unwrap_or(json!({}));
+        kavychka_core::preparation::validate(&saved)?;
+        // Older versions had no completion marker and kept replenishing rows.
+        // Treat an existing day's library as prepared on upgrade; repairing a
+        // partial old batch remains an explicit Prepare day action.
+        let legacy_prepared = saved.get("daily_complete").is_none()
+            && saved["day"].as_str().is_some_and(|day| !day.is_empty())
+            && store
+                .phrases()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .any(|row| row.day.as_deref() == saved["day"].as_str());
         Ok(Self {
             support: Default::default(),
-            support_check: None,
+            support_preferences: None,
             support_index: 0,
             app,
             resources,
@@ -236,6 +251,15 @@ impl Manager {
             runtime_request: None,
             auto_attempts: saved["attempts"].as_u64().unwrap_or(0).min(3) as u32,
             auto_date: saved["day"].as_str().unwrap_or("").into(),
+            audio_date: store
+                .meta("audio_day")
+                .map_err(|e| e.to_string())?
+                .and_then(|v| v.as_str().map(str::to_owned)),
+            daily_complete: saved["daily_complete"].as_bool().unwrap_or(legacy_prepared),
+            support_complete: saved["support_complete"]
+                .as_bool()
+                .unwrap_or(legacy_prepared),
+            daily_final: false,
             auto_cancelled_day: saved["cancelled_day"].as_str().map(str::to_owned),
             last_publish: String::new(),
             cancellation,
@@ -269,7 +293,10 @@ impl Manager {
         }
         Ok(())
     }
-    pub fn resume_preparation(&mut self) {
+    pub fn resume_preparation(&mut self, clock: Clock) {
+        self.auto_date = clock.date.to_string();
+        self.daily_complete = false;
+        self.support_complete = false;
         self.auto_cancelled_day = None;
         self.auto_attempts = 0;
         self.auto_next = None;
@@ -288,7 +315,7 @@ impl Manager {
         cancelled
     }
     fn persist_preparation(&mut self, store: &Sandbox) -> Result<(), String> {
-        let value = json!({"day":self.auto_date,"attempts":self.auto_attempts,"next":self.auto_next,"cancelled_day":self.auto_cancelled_day});
+        let value = json!({"day":self.auto_date,"attempts":self.auto_attempts,"next":self.auto_next,"cancelled_day":self.auto_cancelled_day,"daily_complete":self.daily_complete,"support_complete":self.support_complete});
         let saved = serde_json::to_string(&value).map_err(|e| e.to_string())?;
         if self.saved_preparation != saved {
             store
@@ -390,8 +417,7 @@ impl Manager {
             wait.deadline = wait.deadline.min(clock.utc);
         }
         self.dirty = true;
-        self.auto_attempts = 0;
-        self.auto_next = None;
+        // A preference/preset edit must not reopen a completed day's preparation.
     }
     pub fn allow_current_task_on_battery(&mut self) {
         self.battery_override = self.worker.is_some() && self.kind == "batch";
@@ -608,6 +634,7 @@ impl Manager {
             request["rotation"] = rotation;
         }
         self.task_day = request["day"].as_str().unwrap_or("").into();
+        self.daily_final = kind == "daily" && request["operation"] != "speech";
         self.kind = kind.into();
         self.task_phase = "checking".into();
         self.task_progress = None;
@@ -661,7 +688,7 @@ impl Manager {
             }
         }
         if daily {
-            let missing = planning
+            let mut missing = planning
                 .iter()
                 .filter(|r| {
                     !r.deleted
@@ -671,13 +698,14 @@ impl Manager {
                         && r.audio_path.is_none()
                         && r.model != "system"
                 })
-                .take(100)
                 .cloned()
                 .map(|mut r| {
                     r.approved |= prefs.generation.daily_auto_keep;
                     r
                 })
                 .collect::<Vec<_>>();
+            missing.sort_by_key(|row| (preparation_priority(&row.category), row.followup));
+            missing.truncate(100);
             if !missing.is_empty() {
                 request["operation"] = json!("speech");
                 request["rows"] = json!(missing);
@@ -690,6 +718,9 @@ impl Manager {
             batch_tasks(prefs)
         };
         if tasks.is_empty() {
+            if daily {
+                self.daily_complete = true;
+            }
             self.status = "День уже подготовлен / Day is ready".into();
             return Ok(());
         }
@@ -753,6 +784,9 @@ impl Manager {
                     .map_err(|e| e.to_string())?;
             }
             self.status = "Встроенные фразы подготовлены / Stock phrases prepared".into();
+            if daily {
+                self.daily_complete = true;
+            }
             self.dirty = true;
             return Ok(());
         }
@@ -982,10 +1016,12 @@ impl Manager {
             self.support_index = support_index;
             self.invalidate();
         }
-        if self.support.identity != crate::support::identity(&engine.prefs, &day) {
-            self.support = crate::support::load(store, &engine.prefs, &day)?;
-            self.support_check = None;
-            self.invalidate();
+        if self.support.day != day || self.support_preferences.as_ref() != Some(&engine.prefs) {
+            if self.support.identity != crate::support::identity(&engine.prefs, &day) {
+                self.support = crate::support::load(store, &engine.prefs, &day)?;
+                self.invalidate();
+            }
+            self.support_preferences = Some(engine.prefs.clone());
         }
         let new_day = clock.date.to_string();
         let fullscreen_deferred =
@@ -1224,6 +1260,13 @@ impl Manager {
             }
             if self.kind == "daily" {
                 self.auto_next = Some(clock.utc + chrono::Duration::seconds(60));
+                if !failed
+                    && !cancelled
+                    && self.daily_final
+                    && self.task_day == clock.date.to_string()
+                {
+                    self.daily_complete = true;
+                }
                 if failed && !cancelled {
                     self.auto_attempts += 1;
                 }
@@ -1325,27 +1368,31 @@ impl Manager {
         }
         let day = clock.date.to_string();
         if self.auto_date != day && !(self.kind == "export" && self.running()) {
-            if live {
-                store
-                    .prune_quarantine(clock.date)
-                    .map_err(|e| e.to_string())?;
-            }
             self.auto_date = day.clone();
+            self.daily_complete = false;
+            self.support_complete = false;
             self.auto_attempts = 0;
             self.auto_next = None;
-            if let Some(old) = store
-                .meta("audio_day")
-                .map_err(|e| e.to_string())?
-                .and_then(|v| v.as_str().map(str::to_owned))
-                && old < day
-            {
+        }
+        // Manual preparation can set auto_date before this tick. Audio expiry
+        // has its own day marker and must still run exactly once on rollover.
+        if live
+            && !(self.kind == "export" && self.running())
+            && self.audio_date.as_deref() != Some(&day)
+        {
+            store
+                .prune_quarantine(clock.date)
+                .map_err(|e| e.to_string())?;
+            if self.audio_date.as_ref().is_some_and(|old| old < &day) {
                 store.expire_audio(&day, false).map_err(|e| e.to_string())?;
             }
             store
                 .put_meta("audio_day", &json!(day))
                 .map_err(|e| e.to_string())?;
+            self.audio_date = Some(day.clone());
         }
         let may_prepare = live
+            && !self.daily_complete
             && self.pending_install.is_none()
             && self.auto_cancelled_day.as_deref() != Some(&day)
             && !engine.prefs.generation.runtime
@@ -1377,18 +1424,16 @@ impl Manager {
                 self.dirty = true;
             }
         }
-        self.persist_preparation(store)?;
-        // Lowest-priority, one text-only attempt per day/character. Built-in
-        // lines remain usable when models are absent, deferred, or fail.
+        // Support belongs to the same initial daily session, never to a later
+        // character change or library depletion. Missing models use built-ins.
         if live
-            && engine.prefs.desktop.setup_complete
-            && engine.prefs.generation.text_enabled
-            && !self.support.attempted
+            && self.daily_complete
+            && !self.support_complete
+            && self.auto_cancelled_day.as_deref() != Some(&day)
+            && !engine.prefs.generation.runtime
+            && engine.prefs.generation.auto_daily
             && !self.running()
             && self.waiting.is_none()
-            && self
-                .support_check
-                .is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(60))
             && self.pending_install.is_none()
             && !self.data_hold
             && !engine.paused(clock)
@@ -1397,12 +1442,19 @@ impl Manager {
                 || env.power == kavychka_core::engine::PowerSource::Ac)
             && !(self.kind == "install" && (self.task_error || self.task_phase == "cancelled"))
         {
+            self.support_complete = true;
+            // Persist the attempt before starting a process, including a failed
+            // launch, so reopening the app cannot start another support batch.
+            self.persist_preparation(store)?;
             let mut text_only = engine.prefs.clone();
             text_only.generation.tts_model = "system".into();
             text_only.generation.voice_profile.clear();
             text_only.generation.runtime = false;
-            self.support_check = Some(std::time::Instant::now());
-            if self.unavailable(store, &text_only)?.is_empty() {
+            if engine.prefs.desktop.setup_complete
+                && engine.prefs.generation.text_enabled
+                && !self.support.attempted
+                && self.unavailable(store, &text_only)?.is_empty()
+            {
                 self.support.attempted = true;
                 crate::support::save(store, &self.support)?;
                 let mut request = inference::request(&text_only, &[], "support", &day);
@@ -1420,6 +1472,7 @@ impl Manager {
                 }
             }
         }
+        self.persist_preparation(store)?;
         Ok(())
     }
     /// Called before the reminder transaction; returns a phrase to claim atomically.
@@ -1722,6 +1775,16 @@ fn batch_tasks(p: &Preferences) -> Vec<(Category, bool)> {
         })
         .collect()
 }
+fn preparation_priority(category: &str) -> u8 {
+    match category {
+        "breakfast" => 0,
+        "lunch" => 1,
+        "dinner" => 2,
+        "exercise" => 3,
+        "break" => 4,
+        _ => 5,
+    }
+}
 fn daily_tasks(
     p: &Preferences,
     clock: Clock,
@@ -1773,8 +1836,8 @@ fn daily_tasks(
         Category::Breakfast,
         Category::Lunch,
         Category::Dinner,
-        Category::Break,
         Category::Exercise,
+        Category::Break,
     ] {
         for followup in [false, true] {
             for _ in 0..targets
@@ -1783,9 +1846,6 @@ fn daily_tasks(
                 .unwrap_or(0)
             {
                 result.push((c, followup));
-                if result.len() >= 100 {
-                    return Ok(result);
-                }
             }
         }
     }
@@ -1795,6 +1855,20 @@ fn daily_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn full_day_plan_is_not_silently_cut_at_one_hundred_phrases() {
+        let mut prefs = Preferences::default();
+        prefs.desktop.time_zone = "UTC".into();
+        prefs.schedule.work_days = vec![6];
+        prefs.schedule.work_start = 9 * 60;
+        prefs.schedule.work_end = 21 * 60;
+        prefs.schedule.break_every = 5;
+        prefs.schedule.meals_enabled = false;
+        prefs.schedule.exercise_enabled = false;
+        prefs.reminders.break_repeats = 0;
+        prefs.validate().unwrap();
+        assert_eq!(daily_tasks(&prefs, clock(0), &[]).unwrap().len(), 145);
+    }
     #[test]
     fn importing_an_ordinary_image_keeps_its_bytes_and_selects_smooth_rendering() {
         let temp = temp();
@@ -2002,37 +2076,44 @@ mod tests {
         assert!(view.status.contains("Подготовить день"));
     }
     #[test]
-    fn disabled_exercise_discards_waiting_and_late_runtime_replacement() {
-        let root = temp();
-        let mut store = Sandbox::open(root.path()).unwrap();
-        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
-        let mut engine = Engine::new(Preferences::default(), Default::default(), clock(0)).unwrap();
-        let notice = engine.manual_stretch(clock(0)).announce.unwrap();
-        manager.waiting = Some(Waiting {
-            notice,
-            deadline: clock(10).utc,
-        });
-        manager.runtime_row = Some(row("late"));
-        manager.kind = "runtime".into();
-        let mut prefs = engine.prefs.clone();
-        prefs.schedule.exercise_enabled = false;
-        engine.preferences(prefs, clock(1)).unwrap();
-        manager.settings_changed(clock(1));
-        let mut effect = Effect::default();
-        manager
-            .tick(
-                &mut store,
-                &mut engine,
-                clock(2),
-                Environment::default(),
-                &mut effect,
-                false,
-            )
-            .unwrap();
-        assert!(effect.announce.is_none());
-        assert!(manager.waiting.is_none());
-        assert!(manager.runtime_row.is_none());
-        assert!(engine.state.pending.is_empty());
+    fn disabled_or_cancelled_exercise_discards_waiting_and_late_runtime_replacement() {
+        for cancel in [false, true] {
+            let root = temp();
+            let mut store = Sandbox::open(root.path()).unwrap();
+            let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+            let mut engine =
+                Engine::new(Preferences::default(), Default::default(), clock(0)).unwrap();
+            let notice = engine.manual_stretch(clock(0)).announce.unwrap();
+            manager.waiting = Some(Waiting {
+                notice,
+                deadline: clock(10).utc,
+            });
+            manager.runtime_row = Some(row("late"));
+            manager.kind = "runtime".into();
+            if cancel {
+                engine.cancel_stretch(clock(1));
+            } else {
+                let mut prefs = engine.prefs.clone();
+                prefs.schedule.exercise_enabled = false;
+                engine.preferences(prefs, clock(1)).unwrap();
+                manager.settings_changed(clock(1));
+            }
+            let mut effect = Effect::default();
+            manager
+                .tick(
+                    &mut store,
+                    &mut engine,
+                    clock(2),
+                    Environment::default(),
+                    &mut effect,
+                    false,
+                )
+                .unwrap();
+            assert!(effect.announce.is_none());
+            assert!(manager.waiting.is_none());
+            assert!(manager.runtime_row.is_none());
+            assert!(engine.state.pending.is_empty());
+        }
     }
     #[test]
     fn user_cancel_is_persisted_until_explicit_resume_or_next_day() {
@@ -2068,7 +2149,7 @@ mod tests {
             )
             .unwrap();
         assert!(store.phrases().unwrap().is_empty());
-        manager.resume_preparation();
+        manager.resume_preparation(clock(63));
         manager
             .tick(
                 &mut store,
@@ -2483,6 +2564,192 @@ mod tests {
         }
     }
     #[test]
+    fn completed_daily_session_never_refills_after_use_deletion_settings_or_restart() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let mut prefs = Preferences::default();
+        prefs.desktop.setup_complete = true;
+        prefs.generation.ac_only = false;
+        let mut engine = Engine::new(prefs, Default::default(), clock(0)).unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        let run = |manager: &mut Manager, store: &mut Sandbox, engine: &mut Engine, seconds| {
+            manager
+                .tick(
+                    store,
+                    engine,
+                    clock(seconds),
+                    Environment::default(),
+                    &mut Effect::default(),
+                    true,
+                )
+                .unwrap();
+        };
+        run(&mut manager, &mut store, &mut engine, 0);
+        assert!(manager.daily_complete && manager.support_complete);
+        let initial = store.phrases().unwrap();
+        assert!(!initial.is_empty());
+        for phrase in &initial {
+            store
+                .save_delivery(
+                    &engine.prefs,
+                    &engine.state,
+                    Some((&format!("used:{}", phrase.id), &phrase.id)),
+                )
+                .unwrap();
+            assert!(store.phrase(&phrase.id).unwrap().used_at.is_some());
+        }
+        run(&mut manager, &mut store, &mut engine, 65);
+        assert_eq!(store.phrases().unwrap().len(), initial.len());
+        for phrase in &initial {
+            store.hide_phrase(&phrase.id).unwrap();
+            assert!(store.phrase(&phrase.id).unwrap().deleted);
+        }
+        engine.prefs.generation.character_description = "A different character".into();
+        engine.prefs.generation.text_enabled = true;
+        manager.settings_changed(clock(66));
+        run(&mut manager, &mut store, &mut engine, 130);
+        let mut reopened = Manager::new(&mut store, None, Default::default()).unwrap();
+        run(&mut reopened, &mut store, &mut engine, 200);
+        assert!(reopened.daily_complete && reopened.support_complete);
+        assert!(!reopened.running());
+        assert_eq!(store.phrases().unwrap().len(), initial.len());
+        assert_eq!(
+            std::fs::read_dir(root.path().join("jobs")).unwrap().count(),
+            0
+        );
+        // An explicit request remains possible; a new calendar day reopens once.
+        engine.prefs.generation.text_enabled = false;
+        reopened.resume_preparation(clock(201));
+        reopened
+            .generate(&mut store, &engine.prefs, clock(201), true)
+            .unwrap();
+        assert!(store.phrases().unwrap().len() > initial.len());
+        run(&mut reopened, &mut store, &mut engine, 202);
+        let before = store.phrases().unwrap().len();
+        run(&mut reopened, &mut store, &mut engine, 86400);
+        assert!(store.phrases().unwrap().len() > before);
+        assert!(reopened.daily_complete && reopened.support_complete);
+    }
+    #[test]
+    fn neural_daily_result_closes_session_but_speech_recovery_keeps_initial_session_open() {
+        for (final_stage, success) in [(true, true), (false, true), (true, false)] {
+            let root = temp();
+            let mut store = Sandbox::open(root.path()).unwrap();
+            let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+            manager.auto_date = clock(0).date.to_string();
+            manager.task_day = manager.auto_date.clone();
+            manager.daily_final = final_stage;
+            manager.kind = "daily".into();
+            let job = root.path().join("jobs/job-daily-result");
+            std::fs::create_dir(&job).unwrap();
+            manager.worker = Some(Worker::result_fixture(
+                job,
+                if success {
+                    json!({"kind":"result"})
+                } else {
+                    json!({"kind":"error","message":"fixture failure"})
+                },
+            ));
+            let mut engine =
+                Engine::new(Preferences::default(), Default::default(), clock(0)).unwrap();
+            manager
+                .tick(
+                    &mut store,
+                    &mut engine,
+                    clock(1),
+                    Environment::default(),
+                    &mut Effect::default(),
+                    false,
+                )
+                .unwrap();
+            assert_eq!(manager.daily_complete, final_stage && success);
+            assert_eq!(manager.auto_attempts, if success { 0 } else { 1 });
+            let reopened = Manager::new(&mut store, None, Default::default()).unwrap();
+            assert_eq!(reopened.daily_complete, final_stage && success);
+        }
+    }
+    #[test]
+    fn non_runtime_events_never_generate_missing_phrases_or_speech() {
+        for category in [
+            Category::Breakfast,
+            Category::Lunch,
+            Category::Dinner,
+            Category::Exercise,
+            Category::Break,
+        ] {
+            let root = temp();
+            let mut store = Sandbox::open(root.path()).unwrap();
+            let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+            let mut prefs = Preferences::default();
+            prefs.generation.runtime = false;
+            prefs.generation.text_enabled = true;
+            prefs.generation.tts_model = "tts-cosyvoice3".into();
+            let mut engine = Engine::new(prefs, Default::default(), clock(0)).unwrap();
+            engine.schedule(
+                vec![kavychka_core::reminders::Event {
+                    id: "event-without-prepared-phrase".into(),
+                    due: clock(0).utc,
+                    category,
+                    followup: false,
+                }],
+                clock(0),
+                false,
+            );
+            let mut effect = engine.tick(clock(0), Environment::default(), false);
+            assert!(effect.announce.is_some());
+            assert!(
+                manager
+                    .deliver(&store, &mut engine, clock(0), &mut effect)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(effect.announce.is_some());
+            assert!(!manager.running() && !manager.waiting());
+            assert!(store.phrases().unwrap().is_empty());
+            assert_eq!(
+                std::fs::read_dir(root.path().join("jobs")).unwrap().count(),
+                0
+            );
+        }
+    }
+    #[test]
+    fn upgrade_keeps_existing_day_closed_and_does_not_restart_support_for_a_new_character() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        store.accept_phrase(&row("legacy-prepared"), None).unwrap();
+        store
+            .put_meta(
+                "preparation_state",
+                &json!({"day":clock(0).date.to_string(),"attempts":0}),
+            )
+            .unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        assert!(manager.daily_complete && manager.support_complete);
+        store.hide_phrase("legacy-prepared").unwrap();
+        let mut prefs = Preferences::default();
+        prefs.desktop.setup_complete = true;
+        prefs.generation.ac_only = false;
+        prefs.generation.text_enabled = true;
+        prefs.generation.character_description = "Changed after upgrade".into();
+        let mut engine = Engine::new(prefs, Default::default(), clock(1)).unwrap();
+        manager
+            .tick(
+                &mut store,
+                &mut engine,
+                clock(1),
+                Environment::default(),
+                &mut Effect::default(),
+                true,
+            )
+            .unwrap();
+        assert!(!manager.running());
+        assert_eq!(store.phrases().unwrap().len(), 1);
+        assert_eq!(
+            store.meta("preparation_state").unwrap().unwrap()["support_complete"],
+            true
+        );
+    }
+    #[test]
     fn encouragement_changes_in_two_local_periods_and_survives_reopening() {
         let root = temp();
         let mut store = Sandbox::open(root.path()).unwrap();
@@ -2874,6 +3141,27 @@ mod tests {
         p.generation.categories = vec!["lunch".into()];
         p.generation.batch_count = 5;
         assert!(batch_tasks(&p).iter().all(|(c, _)| *c == Category::Lunch));
+    }
+    #[test]
+    fn daily_preparation_finishes_exercise_and_followups_before_breaks() {
+        let mut p = Preferences::default();
+        p.desktop.time_zone = "UTC".into();
+        p.schedule.work_days = vec![6];
+        p.schedule.work_start = 600;
+        p.schedule.work_end = 660;
+        p.schedule.break_every = 30;
+        p.schedule.meals_enabled = false;
+        let tasks = daily_tasks(&p, clock(0), &[]).unwrap();
+        let last_exercise = tasks
+            .iter()
+            .rposition(|(c, _)| *c == Category::Exercise)
+            .unwrap();
+        let first_break = tasks
+            .iter()
+            .position(|(c, _)| *c == Category::Break)
+            .unwrap();
+        assert!(last_exercise < first_break);
+        assert!(preparation_priority("exercise") < preparation_priority("break"));
     }
     #[test]
     fn explicit_review_cancels_replacement_but_a_late_phrase_is_available_for_a_future_notice() {

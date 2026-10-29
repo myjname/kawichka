@@ -3,7 +3,7 @@ use crate::reminders::{Category, Event};
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Schedule {
     /// .NET-compatible numbering: Sunday=0, Monday=1, ... Saturday=6.

@@ -925,6 +925,7 @@ export component AppWindow inherits Window {
     in property <string> next-reminder;
     in property <string> pause-caption;
     in property <bool> breakfast-done;
+    in property <bool> exercise-active;
     in-out property <int> pause-minutes-value: 15;
     in-out property <bool> close-to-background;
     in-out property <bool> dirty;
@@ -956,6 +957,7 @@ export component AppWindow inherits Window {
     callback runtime-stopped;
     callback confirm-reminder(string);
     callback stretch-now;
+    callback cancel-stretch;
     callback mark-breakfast;
     callback pause-minutes(int);
     callback review-pending;
@@ -1339,6 +1341,17 @@ export component AppWindow inherits Window {
                                 root.stretch-now();
                             }
                         }
+                        ActionButton {
+                            text:root.english ? "Cancel stretch" : "Отменить разминку";
+                            enabled:root.exercise-active;
+                            clicked=>{ root.cancel-stretch(); }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing:8px;
+                        alignment:start;
+                        min-height:32px;
+                        vertical-stretch:0;
                         ActionButton {
                             text:root.english ? "Breakfast done" : "Завтрак закончен";
                             enabled:!root.breakfast-done;
@@ -1771,7 +1784,7 @@ export component AppWindow inherits Window {
                         }
                     }
                     Toggle {
-                        text:root.english ? "Prepare daily phrases automatically" : "Готовить фразы на день автоматически";
+                        text:root.english ? "Prepare phrases once at the start of each day" : "Готовить фразы один раз в начале дня";
                         checked<=>root.auto-daily;
                         toggled=>{
                             root.edited();

@@ -20,6 +20,8 @@ use std::{
     sync::mpsc::SyncSender,
     time::Duration,
 };
+#[path = "visual_load.rs"]
+mod visual_load;
 #[derive(Clone, Copy)]
 struct DragOrigin {
     cursor: (i32, i32),
@@ -34,6 +36,7 @@ pub(crate) fn apply_runtime_status(ui: &AppWindow, view: &RuntimeView) {
     ui.set_next_reminder(view.next.as_str().into());
     ui.set_pause_caption(view.countdown.as_str().into());
     ui.set_breakfast_done(view.breakfast_done);
+    ui.set_exercise_active(view.exercise_active);
     ui.set_pending_text(view.notice.as_ref().map_or("", |n| n.text.as_str()).into());
     ui.set_pending_key(view.notice.as_ref().map_or("", |n| n.key.as_str()).into());
 }
@@ -55,9 +58,8 @@ pub struct Shell {
     blink: slint::Timer,
     ticks: Cell<u64>,
     visual_key: RefCell<String>,
-    visual_frames: std::sync::Arc<std::sync::Mutex<Option<crate::visuals::Frames>>>,
+    visual_frames: std::sync::Arc<std::sync::Mutex<visual_load::Slot<crate::visuals::Frames>>>,
     visual_timer: slint::Timer,
-    visual_serial: std::sync::Arc<std::sync::atomic::AtomicU64>,
     visual_started: std::time::Instant,
     visual_last: Cell<Option<ImageKey>>,
     happy_until: Cell<Option<std::time::Instant>>,
@@ -215,7 +217,6 @@ impl Shell {
             visual_key: RefCell::new(String::new()),
             visual_frames: Default::default(),
             visual_timer: slint::Timer::default(),
-            visual_serial: Default::default(),
             visual_started: std::time::Instant::now(),
             visual_last: Cell::new(None),
             happy_until: Cell::new(None),
@@ -294,7 +295,7 @@ impl Shell {
         let Ok(frames) = self.visual_frames.lock() else {
             return;
         };
-        let Some(frames) = frames.as_ref() else {
+        let Some(frames) = frames.get() else {
             return;
         };
         let elapsed = self.visual_started.elapsed().as_millis() as u64;
@@ -498,6 +499,7 @@ impl Shell {
         action!(self.message, on_silence, Command::Silence);
         if let Some(ui) = self.ui.upgrade() {
             action!(ui, on_stretch_now, Command::Stretch);
+            action!(ui, on_cancel_stretch, Command::CancelStretch);
             action!(ui, on_mark_breakfast, Command::Breakfast);
             action!(ui, on_review_pending, Command::Review);
             action!(ui, on_silence, Command::Silence);
@@ -629,12 +631,10 @@ impl Shell {
             self.visual_last.set(None);
             self.alpha_key.set(None);
             let serial = self
-                .visual_serial
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                + 1;
-            if let Ok(mut f) = self.visual_frames.lock() {
-                *f = None;
-            }
+                .visual_frames
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .begin();
             self.pet.set_custom_visual(false);
             if let Some(ui) = self.ui.upgrade() {
                 ui.set_today_custom(false);
@@ -645,7 +645,6 @@ impl Shell {
                 let root = std::path::PathBuf::from(ui.get_storage_path().as_str());
                 let id = view.prefs.desktop.visual_preset.clone();
                 let frames = self.visual_frames.clone();
-                let current = self.visual_serial.clone();
                 let weak = self.ui.clone();
                 std::thread::spawn(move || {
                     let result = (|| {
@@ -665,18 +664,18 @@ impl Shell {
                             Err("Selected preset is not a visual".into())
                         }
                     })();
-                    if current.load(std::sync::atomic::Ordering::SeqCst) == serial {
-                        match result {
-                            Ok(f) => {
-                                if let Ok(mut frames) = frames.lock() {
-                                    *frames = Some(f);
-                                }
+                    match result {
+                        Ok(f) => {
+                            if let Ok(mut frames) = frames.lock() {
+                                frames.publish(serial, f);
                             }
-                            Err(e) => {
-                                let _ = weak.upgrade_in_event_loop(move |ui| {
+                        }
+                        Err(e) => {
+                            let _ = weak.upgrade_in_event_loop(move |ui| {
+                                if frames.lock().is_ok_and(|frames| frames.is_current(serial)) {
                                     ui.set_runtime_status(e.into())
-                                });
-                            }
+                                }
+                            });
                         }
                     }
                 });
@@ -880,8 +879,10 @@ impl Drop for Shell {
         self.timer.stop();
         self.blink.stop();
         self.visual_timer.stop();
-        self.visual_serial
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.visual_frames
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .begin();
         if let Some(tray) = self.tray.borrow_mut().take() {
             let _ = tray.hide();
         }

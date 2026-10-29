@@ -6,6 +6,126 @@ use std::{
     io::{Read, Write},
     sync::atomic::Ordering,
 };
+#[test]
+fn malformed_preparation_metadata_is_rejected_before_restoring_a_profile() {
+    let dir = temp();
+    let (store, _) = source(dir.path());
+    store
+        .put_meta(
+            "preparation_state",
+            &serde_json::json!({"day":"2026-10-23","attempts":0,"next":"not a timestamp"}),
+        )
+        .unwrap();
+    assert!(super::snapshot::read(&store.root.join("shell.sqlite3")).is_err());
+}
+#[test]
+fn daily_completion_markers_survive_profile_export_and_clean_restore() {
+    let dir = temp();
+    let (source, _) = source(dir.path());
+    let value = serde_json::json!({"day":"2026-10-23","attempts":0,"next":null,"cancelled_day":null,"daily_complete":true,"support_complete":true});
+    source.put_meta("preparation_state", &value).unwrap();
+    let archive = exported(&source, dir.path(), ExportOptions::default());
+    let checked = inspected(&archive, dir.path());
+    let mut target = Sandbox::open(&dir.path().join("daily-target")).unwrap();
+    let mut plan = RestorePlan::prepare(&target, checked, &AtomicBool::new(false)).unwrap();
+    plan.prepare_files(
+        CaptureSource::new(&target).unwrap(),
+        "0.1.1",
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    plan.apply(&mut target, &AtomicBool::new(false)).unwrap();
+    assert_eq!(target.meta("preparation_state").unwrap(), Some(value));
+}
+#[cfg(windows)]
+#[test]
+fn audio_references_ignore_windows_filename_case_and_keep_collision_rules() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../work/audit2-20261029/profile-regressions");
+    fs::create_dir_all(&root).unwrap();
+    let dir = tempfile::tempdir_in(root).unwrap();
+    let (mut source, _) = source(dir.path());
+    let expected = wave(12);
+    let staging = dir.path().join("unicode-staging");
+    fs::create_dir_all(staging.join("audio")).unwrap();
+    fs::write(staging.join("audio/запись.wav"), &expected).unwrap();
+    let mut unicode = source.phrase("excluded").unwrap();
+    unicode.audio_path = Some("запись.wav".into());
+    source.accept_phrase(&unicode, Some(&staging)).unwrap();
+    fs::rename(
+        source.root.join("audio/запись.wav"),
+        source.root.join("audio/ЗАПИСЬ.WAV"),
+    )
+    .unwrap();
+    fs::rename(
+        source.root.join("audio/recording.wav"),
+        source.root.join("audio/RECORDING.WAV"),
+    )
+    .unwrap();
+    assert!(
+        source
+            .audio_file(&source.phrase("same").unwrap())
+            .unwrap()
+            .unwrap()
+            .is_file()
+    );
+    let archive = exported(&source, dir.path(), ExportOptions::default());
+    let cancel = AtomicBool::new(false);
+    for (case, existing) in [
+        ("new", None),
+        ("same", Some(true)),
+        ("different", Some(false)),
+    ] {
+        let mut target = Sandbox::open(&dir.path().join(case)).unwrap();
+        let original = target.root.join("audio/recording.wav");
+        if let Some(same) = existing {
+            fs::write(
+                &original,
+                if same {
+                    expected.as_slice()
+                } else {
+                    b"keep local recording"
+                },
+            )
+            .unwrap();
+        }
+        let checked = inspected(&archive, dir.path());
+        let mut plan = RestorePlan::prepare(&target, checked, &cancel).unwrap();
+        assert_eq!(
+            plan.summary().remapped_files,
+            usize::from(existing == Some(false))
+        );
+        plan.prepare_files(
+            CaptureSource::new(&target).unwrap(),
+            "0.1.1",
+            &cancel,
+            |_| {},
+        )
+        .unwrap();
+        plan.apply(&mut target, &cancel).unwrap();
+        let first = target.phrase("same").unwrap();
+        let second = target.phrase("voice-new").unwrap();
+        assert_eq!(first.audio_path, second.audio_path);
+        assert_eq!(
+            fs::read(target.audio_file(&first).unwrap().unwrap()).unwrap(),
+            expected
+        );
+        assert_eq!(
+            fs::read(
+                target
+                    .audio_file(&target.phrase("excluded").unwrap())
+                    .unwrap()
+                    .unwrap()
+            )
+            .unwrap(),
+            expected
+        );
+        if existing == Some(false) {
+            assert_eq!(fs::read(original).unwrap(), b"keep local recording");
+        }
+    }
+}
 fn temp() -> tempfile::TempDir {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../work/p5-storage-tests");
     fs::create_dir_all(&root).unwrap();

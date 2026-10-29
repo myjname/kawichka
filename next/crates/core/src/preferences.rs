@@ -48,7 +48,7 @@ impl AnimationIntensity {
         enabled && platform_allowed && !paused && self != Self::Off
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ReminderOptions {
     pub allow_during_dnd: bool,
@@ -109,7 +109,7 @@ impl ReminderOptions {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
     pub format: u32,
@@ -129,7 +129,7 @@ pub struct Preferences {
     #[serde(default)]
     pub desktop: DesktopOptions,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DesktopOptions {
     pub time_zone: String,

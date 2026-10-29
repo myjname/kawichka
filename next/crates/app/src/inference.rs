@@ -291,6 +291,33 @@ pub fn models(
     }
     Ok(list)
 }
+fn worker_watchdog_expired(installing: bool, elapsed: Duration, silence: Duration) -> bool {
+    if installing {
+        elapsed >= Duration::from_secs(6 * 60 * 60) || silence >= Duration::from_secs(15 * 60)
+    } else {
+        elapsed >= Duration::from_secs(30 * 60)
+    }
+}
+fn installation_activity(value: &Result<Value, String>) -> bool {
+    let Ok(message) = value else { return false };
+    match message["kind"].as_str() {
+        Some("progress") => {
+            message["message"]
+                .as_str()
+                .is_some_and(|text| !text.is_empty())
+                && message["done"].as_u64().is_some()
+                && message["total"].as_u64().is_some()
+        }
+        Some("stage") => message["stage"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty()),
+        Some("result") => true,
+        Some("error") => message["message"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty()),
+        _ => false,
+    }
+}
 pub struct Worker {
     pub root: PathBuf,
     pub cancelled: Arc<AtomicBool>,
@@ -299,11 +326,21 @@ pub struct Worker {
     reader: Option<std::thread::JoinHandle<()>>,
     messages: mpsc::Receiver<Result<Value, String>>,
     started: Instant,
+    installing: bool,
+    last_activity_ms: Arc<AtomicU64>,
     finished: bool,
     cancelling: Option<Instant>,
     diagnostic_log: Option<PathBuf>,
 }
 impl Worker {
+    #[cfg(test)]
+    pub fn result_fixture(root: PathBuf, value: Value) -> Self {
+        let mut worker = Self::inert_fixture(root);
+        let (sender, receiver) = mpsc::channel();
+        sender.send(Ok(value)).unwrap();
+        worker.messages = receiver;
+        worker
+    }
     #[cfg(test)]
     pub fn inert_fixture(root: PathBuf) -> Self {
         // A test harness help process provides a real, harmless Child handle;
@@ -327,6 +364,8 @@ impl Worker {
             reader: None,
             messages,
             started: Instant::now(),
+            installing: false,
+            last_activity_ms: Arc::new(AtomicU64::new(0)),
             finished: false,
             cancelling: None,
             diagnostic_log: None,
@@ -343,13 +382,11 @@ impl Worker {
             std::process::id(),
             SERIAL.fetch_add(1, Ordering::Relaxed)
         );
-        let root = library.join("jobs").join(format!(
-            "{id}-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_nanos()
-        ));
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos();
+        let root = library.join("jobs").join(format!("{id}-{timestamp}"));
         std::fs::create_dir(&root).map_err(|e| e.to_string())?;
         let mut pending = PendingStaging {
             root: root.clone(),
@@ -448,7 +485,7 @@ impl Worker {
             let directory = library.join("logs");
             kavychka_storage::preview::no_link_chain(&directory).map_err(|e| e.to_string())?;
             std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-            Some(directory.join(format!("model-install-{id}.log")))
+            Some(directory.join(format!("model-install-{id}-{timestamp}.log")))
         } else {
             None
         };
@@ -474,6 +511,7 @@ impl Worker {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
+        let started = Instant::now();
         let mut child = command.spawn().map_err(|e| e.to_string())?;
         let job = match kavychka_platform::process::Job::assign_background(&child) {
             Ok(j) => j,
@@ -502,6 +540,8 @@ impl Worker {
         let stdout = child.stdout.take().ok_or("worker stdout missing")?;
         let (tx, messages) = mpsc::channel();
         let expected = id.clone();
+        let last_activity_ms = Arc::new(AtomicU64::new(0));
+        let reader_activity_ms = last_activity_ms.clone();
         let reader = std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             loop {
@@ -527,6 +567,13 @@ impl Worker {
                                     Err("worker protocol/task mismatch".into())
                                 }
                             });
+                        if installing && installation_activity(&value) {
+                            // Only task/version-checked stdout messages count.
+                            // Record arrival time here, independently of UI polls;
+                            // stderr and protocol errors cannot extend the wait.
+                            reader_activity_ms
+                                .store(started.elapsed().as_millis() as u64, Ordering::Release);
+                        }
                         if tx.send(value).is_err() {
                             break;
                         }
@@ -545,7 +592,9 @@ impl Worker {
             job: Some(job),
             reader: Some(reader),
             messages,
-            started: Instant::now(),
+            started,
+            installing,
+            last_activity_ms,
             finished: false,
             cancelling: None,
             diagnostic_log,
@@ -578,10 +627,14 @@ impl Worker {
         if self.cancelled.load(Ordering::Acquire) {
             self.request_cancel();
         }
+        let elapsed = self.started.elapsed();
+        let silence = elapsed.saturating_sub(Duration::from_millis(
+            self.last_activity_ms.load(Ordering::Acquire),
+        ));
         if self
             .cancelling
             .is_some_and(|t| t.elapsed() >= Duration::from_secs(3))
-            || self.started.elapsed() > Duration::from_secs(1800)
+            || worker_watchdog_expired(self.installing, elapsed, silence)
         {
             self.terminate();
             output.clear();
@@ -680,6 +733,86 @@ pub fn request(prefs: &Preferences, rows: &[Phrase], operation: &str, day: &str)
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn installation_watchdog_allows_progress_after_thirty_minutes() {
+        use std::time::Duration;
+        assert!(!super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(31 * 60),
+            Duration::from_secs(5),
+        ));
+        assert!(!super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(6 * 60 * 60 - 1),
+            Duration::from_secs(0),
+        ));
+    }
+
+    #[test]
+    fn installation_watchdog_bounds_silence_and_total_time() {
+        use std::time::Duration;
+        assert!(!super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(60 * 60),
+            Duration::from_secs(15 * 60 - 1),
+        ));
+        assert!(super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(60 * 60),
+            Duration::from_secs(15 * 60),
+        ));
+        assert!(super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(6 * 60 * 60),
+            Duration::ZERO,
+        ));
+    }
+
+    #[test]
+    fn generation_watchdog_keeps_absolute_thirty_minute_limit() {
+        use std::time::Duration;
+        assert!(!super::worker_watchdog_expired(
+            false,
+            Duration::from_secs(30 * 60 - 1),
+            Duration::from_secs(30 * 60 - 1),
+        ));
+        assert!(super::worker_watchdog_expired(
+            false,
+            Duration::from_secs(30 * 60),
+            Duration::ZERO,
+        ));
+    }
+
+    #[test]
+    fn installation_watchdog_uses_validated_activity_and_ignores_protocol_errors() {
+        use super::*;
+        // Bootstrap, pip and download progress all use this stdout contract.
+        for message in [
+            json!({"kind":"stage","stage":"install_runtime"}),
+            json!({"kind":"progress","phase":"install_runtime","message":"Installing speech components","done":0,"total":0}),
+            json!({"kind":"progress","phase":"install_models","message":"Downloading model","done":1048576,"total":6975879296_u64}),
+            json!({"kind":"result","ready":true}),
+            json!({"kind":"error","message":"Installation failed"}),
+        ] {
+            assert!(installation_activity(&Ok(message)));
+        }
+        for message in [
+            json!({"kind":"unrecognized","message":"stderr text"}),
+            json!({"kind":"progress","message":"missing counts"}),
+            json!({"kind":"progress","message":"","done":0,"total":0}),
+            json!({"kind":"progress","message":"bad counts","done":"one","total":0}),
+            json!({"kind":"stage","stage":null}),
+        ] {
+            assert!(!installation_activity(&Ok(message)));
+        }
+        assert!(!installation_activity(&Err(
+            "worker protocol/task mismatch".into()
+        )));
+        assert!(!installation_activity(&Err(
+            "invalid JSON or stdout message exceeds limit".into()
+        )));
+    }
+
     #[test]
     fn text_engine_readiness_requires_revision_libraries_and_requested_device() {
         use super::*;

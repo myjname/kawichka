@@ -21,6 +21,10 @@ use std::{
 type Events = Arc<Mutex<VecDeque<Box<dyn FnOnce() + Send>>>>;
 mod feedback;
 mod library_selection;
+mod stretch;
+pub fn verify_stretch(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    stretch::run(output)
+}
 pub fn verify_library_selection(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     library_selection::run(output)
 }
@@ -294,7 +298,7 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     ui.set_next_reminder("Controlled reminder".into());
     ui.set_pending_text("Controlled single-line reminder".into());
     render(&window, &output.join("today-before.png"))?;
-    click(&ui, 496., 437.);
+    click(&ui, 496., 620.);
     wait(&events, "Until tomorrow pointer action", || {
         pauses.lock().unwrap().len() == 1
     })?;
@@ -302,7 +306,7 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         return Err("Until tomorrow did not dispatch Pause(-1)".into());
     }
     ui.set_pending_text("Controlled single-line reminder".into());
-    click(&ui, 592., 437.);
+    click(&ui, 592., 620.);
     wait(&events, "Resume pointer action", || {
         pauses.lock().unwrap().len() == 2
     })?;
@@ -331,12 +335,12 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     ui.set_audio_device_id("".into());
     ui.set_scroll_y(-ui.get_scroll_overflow());
     render(&window, &output.join("settings-bottom-before.png"))?;
-    next_choice(&ui, 600., 377.);
+    next_choice(&ui, 600., 311.);
     pump(&events);
     if ui.get_audio_device_index() != 1 || ui.get_audio_device_id() != "synthetic-pinned-endpoint" {
         return Err("Audio selection did not update stable endpoint ID".into());
     }
-    click(&ui, 490., 418.);
+    click(&ui, 490., 353.);
     pump(&events);
     if *audio_calls.lock().unwrap() != ["silence"] {
         return Err(format!(
@@ -345,7 +349,7 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
-    next_choice(&ui, 600., 495.);
+    next_choice(&ui, 600., 436.);
     pump(&events);
     if !ui.get_animation() || ui.get_animation_index() != 1 {
         return Err("Animation choice did not re-enable a previously disabled companion".into());
@@ -359,7 +363,8 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                 p.desktop.time_zone == "UTC"
                     && p.reminders.audio_device == "synthetic-pinned-endpoint"
                     && p.reminders.animation
-                    && p.reminders.animation_intensity == AnimationIntensity::Subtle
+                    && p.reminders.animation_intensity == original.reminders.animation_intensity
+                    && !p.reminders.idle_continuous
             })
     })?;
     ui.set_page(7);
@@ -383,7 +388,8 @@ pub fn run(output: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     if saved.desktop.time_zone != "UTC"
         || saved.reminders.audio_device != "synthetic-pinned-endpoint"
         || !saved.reminders.animation
-        || saved.reminders.animation_intensity != AnimationIntensity::Subtle
+        || saved.reminders.animation_intensity != original.reminders.animation_intensity
+        || saved.reminders.idle_continuous
         || state.pause_until.is_some()
         || state.pause_forever
         || saved.schedule.break_every != 720

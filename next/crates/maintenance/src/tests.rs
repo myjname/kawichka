@@ -41,6 +41,68 @@ fn probe(_: &Path, c: &Current) -> Result<()> {
     s.save(&p)?;
     Ok(())
 }
+#[cfg(windows)]
+#[test]
+#[ignore = "explicit native fixture; set KAVYCHKA_JUNCTION_TEST_ROOT to a temporary test directory"]
+fn owned_cleanup_rejects_a_junction_to_another_owned_directory() {
+    let scratch = PathBuf::from(
+        std::env::var_os("KAVYCHKA_JUNCTION_TEST_ROOT")
+            .expect("set an isolated junction fixture root"),
+    );
+    assert!(scratch.is_absolute());
+    std::fs::create_dir_all(&scratch).unwrap();
+    let t = tempfile::tempdir_in(scratch).unwrap();
+    let versions = t.path().join("versions");
+    let active = versions.join("1.0.0");
+    std::fs::create_dir_all(active.join("nested")).unwrap();
+    std::fs::write(active.join("nested/keep"), b"active version").unwrap();
+    let stage = versions.join("stage-1.1.0");
+    let script = t.path().join("create-junction.ps1");
+    std::fs::write(&script, b"param([string]$Link,[string]$Target)\r\nNew-Item -ItemType Junction -Path $Link -Target $Target -ErrorAction Stop | Out-Null\r\n").unwrap();
+    let powershell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    let mut command = std::process::Command::new(powershell);
+    command
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
+        .arg(script)
+        .arg("-Link")
+        .arg(stage.to_string_lossy().trim_start_matches("\\\\?\\"))
+        .arg("-Target")
+        .arg(active.to_string_lossy().trim_start_matches("\\\\?\\"));
+    crate::windows::hide(&mut command);
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "junction fixture failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(delete_owned_tree(&stage, &versions).is_err());
+    assert!(delete_owned_tree(&stage.join("nested"), &versions).is_err());
+    assert_eq!(
+        std::fs::read(active.join("nested/keep")).unwrap(),
+        b"active version"
+    );
+    std::fs::remove_dir(stage).unwrap();
+}
+#[cfg(windows)]
+#[test]
+#[ignore = "explicit native fixture; set KAVYCHKA_SHORTCUT_TEST_ROOT to a temporary test directory"]
+fn shortcut_staging_preserves_existing_named_neighbors() {
+    let scratch = PathBuf::from(
+        std::env::var_os("KAVYCHKA_SHORTCUT_TEST_ROOT")
+            .expect("set an isolated shortcut fixture root"),
+    );
+    assert!(scratch.is_absolute());
+    std::fs::create_dir_all(&scratch).unwrap();
+    let t = tempfile::tempdir_in(scratch).unwrap();
+    crate::windows::verify_shortcuts(&t.path().join("evidence")).unwrap();
+}
 #[test]
 fn update_execution_rechecks_digest_manifest_and_denies_replacement() {
     let t = temp();

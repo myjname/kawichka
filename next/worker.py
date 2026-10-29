@@ -270,9 +270,13 @@ def run(request):
             spec = self.manifest["models"][key]
             return own if all((own / f["path"]).is_file() and (own / f["path"]).stat().st_size == f["size"] for f in spec["files"]) else original
         def llama_executable(self):
-            return managed / "llama/llama-server.exe" if (managed / "llama/verified.json").is_file() else super().llama_executable()
+            own = Components(APP, managed, store)
+            source = own if own.llama_ready(gpu=self.llama_device() == "cuda") else Components(APP, self.root, store)
+            return source.llama_executable()
         def llama_ready(self, gpu=None):
-            return Components(APP, managed, store).llama_ready(gpu) or super().llama_ready(gpu)
+            # Components.llama_ready calls its own llama_executable. Inspect
+            # each root directly so readiness and the launched binary agree.
+            return Components(APP, managed, store).llama_ready(gpu) or Components(APP, self.root, store).llama_ready(gpu)
         def runtime_ready(self, gpu=None):
             return Components(APP, managed, store).runtime_ready(gpu) or super().runtime_ready(gpu)
         def cosy_ready(self):
