@@ -314,6 +314,8 @@ pub fn merge(
 #[cfg(test)]
 mod draft_map_tests {
     use super::*;
+    // Uses Windows drive paths, which are not absolute on other platforms.
+    #[cfg(windows)]
     #[test]
     fn adding_and_removing_a_selected_model_path_preserves_other_draft_and_concurrent_paths() {
         let mut base = Preferences::default();

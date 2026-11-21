@@ -8,6 +8,9 @@ fn contract() -> Value {
     serde_json::from_str(include_str!("../../../contracts/p1-fields.json")).unwrap()
 }
 
+// Fixture values are Windows drive paths; generation validation requires
+// OS-absolute model paths, and the product only targets Windows.
+#[cfg(windows)]
 #[test]
 fn every_allowed_field_has_an_explicit_disposition_and_active_values_survive() {
     let c = contract();

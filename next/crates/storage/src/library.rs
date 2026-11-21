@@ -1185,7 +1185,9 @@ mod tests {
     fn temp() -> tempfile::TempDir {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../work/library-tests");
         std::fs::create_dir_all(&root).unwrap();
-        tempfile::tempdir_in(root).unwrap()
+        // Resolve `..`: the fallback for a vanished source only normalizes
+        // lexically on Windows, so a canonical root keeps the test portable.
+        tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap()
     }
     fn fixture(root: &Path) -> PathBuf {
         let source = root.join("old");
