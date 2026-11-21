@@ -8,6 +8,7 @@ pub mod presets;
 pub mod preview;
 pub mod profile;
 pub mod sandbox;
+pub mod support;
 pub mod transfer;
 
 #[derive(Debug, thiserror::Error)]

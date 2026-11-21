@@ -6,6 +6,126 @@ use std::{
     io::{Read, Write},
     sync::atomic::Ordering,
 };
+#[test]
+fn malformed_preparation_metadata_is_rejected_before_restoring_a_profile() {
+    let dir = temp();
+    let (store, _) = source(dir.path());
+    store
+        .put_meta(
+            "preparation_state",
+            &serde_json::json!({"day":"2026-10-23","attempts":0,"next":"not a timestamp"}),
+        )
+        .unwrap();
+    assert!(super::snapshot::read(&store.root.join("shell.sqlite3")).is_err());
+}
+#[test]
+fn daily_completion_markers_survive_profile_export_and_clean_restore() {
+    let dir = temp();
+    let (source, _) = source(dir.path());
+    let value = serde_json::json!({"day":"2026-10-23","attempts":0,"next":null,"cancelled_day":null,"daily_complete":true,"support_complete":true});
+    source.put_meta("preparation_state", &value).unwrap();
+    let archive = exported(&source, dir.path(), ExportOptions::default());
+    let checked = inspected(&archive, dir.path());
+    let mut target = Sandbox::open(&dir.path().join("daily-target")).unwrap();
+    let mut plan = RestorePlan::prepare(&target, checked, &AtomicBool::new(false)).unwrap();
+    plan.prepare_files(
+        CaptureSource::new(&target).unwrap(),
+        "0.1.1",
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    plan.apply(&mut target, &AtomicBool::new(false)).unwrap();
+    assert_eq!(target.meta("preparation_state").unwrap(), Some(value));
+}
+#[cfg(windows)]
+#[test]
+fn audio_references_ignore_windows_filename_case_and_keep_collision_rules() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../work/audit2-20261029/profile-regressions");
+    fs::create_dir_all(&root).unwrap();
+    let dir = tempfile::tempdir_in(root).unwrap();
+    let (mut source, _) = source(dir.path());
+    let expected = wave(12);
+    let staging = dir.path().join("unicode-staging");
+    fs::create_dir_all(staging.join("audio")).unwrap();
+    fs::write(staging.join("audio/запись.wav"), &expected).unwrap();
+    let mut unicode = source.phrase("excluded").unwrap();
+    unicode.audio_path = Some("запись.wav".into());
+    source.accept_phrase(&unicode, Some(&staging)).unwrap();
+    fs::rename(
+        source.root.join("audio/запись.wav"),
+        source.root.join("audio/ЗАПИСЬ.WAV"),
+    )
+    .unwrap();
+    fs::rename(
+        source.root.join("audio/recording.wav"),
+        source.root.join("audio/RECORDING.WAV"),
+    )
+    .unwrap();
+    assert!(
+        source
+            .audio_file(&source.phrase("same").unwrap())
+            .unwrap()
+            .unwrap()
+            .is_file()
+    );
+    let archive = exported(&source, dir.path(), ExportOptions::default());
+    let cancel = AtomicBool::new(false);
+    for (case, existing) in [
+        ("new", None),
+        ("same", Some(true)),
+        ("different", Some(false)),
+    ] {
+        let mut target = Sandbox::open(&dir.path().join(case)).unwrap();
+        let original = target.root.join("audio/recording.wav");
+        if let Some(same) = existing {
+            fs::write(
+                &original,
+                if same {
+                    expected.as_slice()
+                } else {
+                    b"keep local recording"
+                },
+            )
+            .unwrap();
+        }
+        let checked = inspected(&archive, dir.path());
+        let mut plan = RestorePlan::prepare(&target, checked, &cancel).unwrap();
+        assert_eq!(
+            plan.summary().remapped_files,
+            usize::from(existing == Some(false))
+        );
+        plan.prepare_files(
+            CaptureSource::new(&target).unwrap(),
+            "0.1.1",
+            &cancel,
+            |_| {},
+        )
+        .unwrap();
+        plan.apply(&mut target, &cancel).unwrap();
+        let first = target.phrase("same").unwrap();
+        let second = target.phrase("voice-new").unwrap();
+        assert_eq!(first.audio_path, second.audio_path);
+        assert_eq!(
+            fs::read(target.audio_file(&first).unwrap().unwrap()).unwrap(),
+            expected
+        );
+        assert_eq!(
+            fs::read(
+                target
+                    .audio_file(&target.phrase("excluded").unwrap())
+                    .unwrap()
+                    .unwrap()
+            )
+            .unwrap(),
+            expected
+        );
+        if existing == Some(false) {
+            assert_eq!(fs::read(original).unwrap(), b"keep local recording");
+        }
+    }
+}
 fn temp() -> tempfile::TempDir {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../work/p5-storage-tests");
     fs::create_dir_all(&root).unwrap();
@@ -158,6 +278,59 @@ pub(super) fn tree_hash(root: &Path) -> String {
 }
 use sha2::Digest;
 #[test]
+fn encouragement_metadata_survives_full_profile_and_is_omitted_without_history() {
+    let dir = temp();
+    let (source, _) = source(dir.path());
+    let mut support = crate::support::load(&source, &source.load().unwrap(), "2026-10-28").unwrap();
+    crate::support::accept(
+        &source,
+        &mut support,
+        vec![
+            "A small step still counts today.".into(),
+            "There is room for a second try.".into(),
+        ],
+    )
+    .unwrap();
+    let archive = exported(&source, dir.path(), ExportOptions::default());
+    let inspected = inspected(&archive, dir.path());
+    assert_eq!(
+        inspected.snapshot.meta.get("support_history"),
+        source.meta("support_history").unwrap().as_ref()
+    );
+    let mut target = Sandbox::open(&dir.path().join("support-target")).unwrap();
+    let mut plan = RestorePlan::prepare(&target, inspected, &AtomicBool::new(false)).unwrap();
+    plan.prepare_files(
+        CaptureSource::new(&target).unwrap(),
+        "0.1.1",
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    plan.apply(&mut target, &AtomicBool::new(false)).unwrap();
+    assert_eq!(
+        source.meta("support_history").unwrap(),
+        target.meta("support_history").unwrap()
+    );
+    let archive = exported(
+        &source,
+        dir.path(),
+        ExportOptions {
+            library: false,
+            audio: false,
+        },
+    );
+    let checked = super::archive::inspect(
+        &archive,
+        &dir.path().join("support-no-history"),
+        2_000_000_000,
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    assert!(!checked.snapshot.meta.contains_key("support_day"));
+    assert!(!checked.snapshot.meta.contains_key("support_history"));
+}
+#[test]
 fn full_profile_restores_settings_history_presets_audio_and_claims_without_touching_source() {
     let dir = temp();
     let (source, character) = source(dir.path());
@@ -234,6 +407,159 @@ fn full_profile_restores_settings_history_presets_audio_and_claims_without_touch
             .already_imported
     );
     assert_eq!(old_files, tree_hash(&target.root));
+}
+
+#[test]
+fn complete_character_keeps_all_components_through_profile_backup_and_restore() {
+    let dir = temp();
+    let (mut source, _) = source(dir.path());
+    let media = dir.path().join("pack-media");
+    fs::create_dir(&media).unwrap();
+    fs::write(media.join("reference.wav"), wave(3)).unwrap();
+    fs::write(media.join("pet.gif"), b"GIF89a prepared metadata fixture").unwrap();
+    let voice = presets::import_prepared(
+        &source.root,
+        &presets::Preset {
+            version: 1,
+            name: "Voice fixture".into(),
+            content: presets::Content::Voice {
+                references: vec![presets::Reference {
+                    file: "reference.wav".into(),
+                    transcript: "Prepared reference.".into(),
+                }],
+            },
+        },
+        Some(&media),
+    )
+    .unwrap();
+    let visual = presets::import_prepared(
+        &source.root,
+        &presets::Preset {
+            version: 1,
+            name: "Appearance fixture".into(),
+            content: presets::Content::Visual {
+                file: "pet.gif".into(),
+                layout: "pixel".into(),
+            },
+        },
+        Some(&media),
+    )
+    .unwrap();
+    let mut p = source.load().unwrap();
+    p.generation.voice_profile = voice;
+    p.desktop.visual_preset = visual;
+    p.generation.character_description = "Portable complete character.".into();
+    let pack = presets::save_current_pack(&source.root, "Complete fixture".into(), &p).unwrap();
+    p.desktop.character_preset = pack.clone();
+    p.generation.voice_profile = pack.clone();
+    p.desktop.visual_preset = pack.clone();
+    source.save(&p).unwrap();
+    let original = presets::read(&source.root, &pack).unwrap();
+    let before = tree_hash(&source.root);
+    let zip = exported(&source, dir.path(), ExportOptions::default());
+    let mut target = Sandbox::open(&dir.path().join("target")).unwrap();
+    let mut plan = RestorePlan::prepare(
+        &target,
+        inspected(&zip, dir.path()),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    plan.prepare_files(
+        CaptureSource::new(&target).unwrap(),
+        "0.1.31",
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    plan.apply(&mut target, &AtomicBool::new(false)).unwrap();
+    let restored = target.load().unwrap();
+    assert_eq!(restored.desktop.character_preset, pack);
+    assert_eq!(restored.generation.voice_profile, pack);
+    assert_eq!(restored.desktop.visual_preset, pack);
+    assert_eq!(
+        serde_json::to_value(p).unwrap(),
+        serde_json::to_value(restored).unwrap()
+    );
+    let actual = presets::read(&target.root, &pack).unwrap();
+    assert_eq!(
+        serde_json::to_value(&original).unwrap(),
+        serde_json::to_value(actual).unwrap()
+    );
+    for file in original.files() {
+        assert_eq!(
+            fs::read(presets::folder(&source.root, &pack).unwrap().join(file)).unwrap(),
+            fs::read(presets::folder(&target.root, &pack).unwrap().join(file)).unwrap()
+        );
+    }
+    assert_eq!(before, tree_hash(&source.root));
+    // A different local character using the same ID must keep its settings;
+    // the incoming self-contained package is remapped without broken links.
+    let mut occupied = Sandbox::open(&dir.path().join("occupied")).unwrap();
+    let destination = presets::folder(&occupied.root, &pack).unwrap();
+    fs::create_dir(&destination).unwrap();
+    for file in original.files() {
+        fs::copy(
+            presets::folder(&source.root, &pack).unwrap().join(file),
+            destination.join(file),
+        )
+        .unwrap();
+    }
+    fs::copy(
+        presets::folder(&source.root, &pack)
+            .unwrap()
+            .join("preset.json"),
+        destination.join("preset.json"),
+    )
+    .unwrap();
+    let mut local = presets::read(&occupied.root, &pack).unwrap();
+    local.name = "Local character kept".into();
+    presets::update(&occupied.root, &pack, &local).unwrap();
+    let mut chosen = occupied.load().unwrap();
+    chosen.user_name = "Existing profile".into();
+    chosen.desktop.character_preset = pack.clone();
+    chosen.generation.voice_profile = pack.clone();
+    chosen.desktop.visual_preset = pack.clone();
+    occupied.save(&chosen).unwrap();
+    let wanted = serde_json::to_value(chosen).unwrap();
+    let mut plan = RestorePlan::prepare(
+        &occupied,
+        inspected(&zip, dir.path()),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert!(!plan.summary().clean_profile);
+    plan.prepare_files(
+        CaptureSource::new(&occupied).unwrap(),
+        "0.1.31",
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    plan.apply(&mut occupied, &AtomicBool::new(false)).unwrap();
+    assert_eq!(
+        serde_json::to_value(occupied.load().unwrap()).unwrap(),
+        wanted
+    );
+    assert_eq!(
+        presets::read(&occupied.root, &pack).unwrap().name,
+        "Local character kept"
+    );
+    let imported = presets::list(&occupied.root)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.id != pack && e.preset.name == original.name)
+        .unwrap();
+    for file in imported.preset.files() {
+        assert_eq!(
+            fs::read(presets::folder(&source.root, &pack).unwrap().join(file)).unwrap(),
+            fs::read(
+                presets::folder(&occupied.root, &imported.id)
+                    .unwrap()
+                    .join(file)
+            )
+            .unwrap()
+        );
+    }
 }
 
 #[test]
@@ -632,6 +958,47 @@ fn rewrite_zip(source: &Path, dest: &Path, edit: impl FnOnce(&mut serde_json::Va
     }
     z.finish().unwrap();
 }
+#[test]
+fn character_archives_are_identified_before_inspection_job_or_profile_changes() {
+    let dir = temp();
+    let (current, _) = source(dir.path());
+    let before = tree_hash(&current.root);
+    let original_prefs = serde_json::to_value(current.load().unwrap()).unwrap();
+    let original_rows = serde_json::to_value(current.phrases().unwrap()).unwrap();
+    for (case, entry) in [
+        ("single", "preset.json"),
+        ("collection", "parts/component.KAVYCHKA"),
+    ] {
+        let archive = dir.path().join(format!("character-{case}.zip"));
+        let mut zip = zip::ZipWriter::new(fs::File::create(&archive).unwrap());
+        zip.start_file(entry, zip::write::FileOptions::default())
+            .unwrap();
+        zip.write_all(b"not extracted or interpreted here").unwrap();
+        zip.finish().unwrap();
+        let job = current.root.join("jobs").join(format!("inspect-{case}"));
+        let result = inspect(
+            &archive,
+            &job,
+            2_000_000_000,
+            &AtomicBool::new(false),
+            |_| panic!("wrong archive must not reach extraction"),
+        );
+        assert!(
+            matches!(result, Err(Error::Invalid(message)) if message == "character preset archive; import in Character after setup")
+        );
+        assert!(!job.exists());
+        assert_eq!(tree_hash(&current.root), before);
+    }
+    assert_eq!(
+        serde_json::to_value(current.load().unwrap()).unwrap(),
+        original_prefs
+    );
+    assert_eq!(
+        serde_json::to_value(current.phrases().unwrap()).unwrap(),
+        original_rows
+    );
+}
+
 #[test]
 fn wrong_hash_future_format_and_traversal_are_rejected_before_any_target_profile_change() {
     let dir = temp();

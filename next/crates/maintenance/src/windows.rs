@@ -96,12 +96,52 @@ fn run(mut cmd: std::process::Command) -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
+struct ShortcutStage {
+    root: PathBuf,
+    parent: PathBuf,
+}
+impl ShortcutStage {
+    fn new(parent: &Path) -> Result<Self> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SERIAL: AtomicU64 = AtomicU64::new(0);
+        kavychka_storage::preview::no_link_chain(parent)?;
+        std::fs::create_dir_all(parent)?;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        for _ in 0..32 {
+            let root = parent.join(format!(
+                ".kavychka-shortcut-{}-{stamp}-{}",
+                std::process::id(),
+                SERIAL.fetch_add(1, Ordering::Relaxed)
+            ));
+            match std::fs::create_dir(&root) {
+                Ok(()) => {
+                    return Ok(Self {
+                        root,
+                        parent: parent.to_owned(),
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err("could not reserve shortcut staging directory".into())
+    }
+    fn file(&self) -> PathBuf {
+        self.root.join("shortcut.lnk")
+    }
+}
+impl Drop for ShortcutStage {
+    fn drop(&mut self) {
+        let _ = crate::delete_owned_tree(&self.root, &self.parent);
+    }
+}
 pub fn shortcut(path: &Path, target: &Path, arguments: &str) -> Result<()> {
     kavychka_storage::preview::no_link_chain(path)?;
     let parent = path.parent().ok_or("shortcut parent missing")?;
-    std::fs::create_dir_all(parent)?;
-    let temp = path.with_extension("next.lnk");
-    kavychka_storage::preview::no_link_chain(&temp)?;
+    let stage = ShortcutStage::new(parent)?;
+    let temp = stage.file();
     let mut cmd = std::process::Command::new(system_powershell()?);
     cmd.args(["-NoProfile", "-NonInteractive", "-Command", "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:KAVYCHKA_SHORTCUT); $s.TargetPath=$env:KAVYCHKA_TARGET; $s.WorkingDirectory=$env:KAVYCHKA_WORKING; $s.Arguments=$env:KAVYCHKA_ARGUMENTS; $s.Save()"])
         .env("KAVYCHKA_SHORTCUT", &temp).env("KAVYCHKA_TARGET", target).env("KAVYCHKA_WORKING", target.parent().ok_or("shortcut target parent missing")?).env("KAVYCHKA_ARGUMENTS", arguments);
@@ -242,8 +282,8 @@ fn restore_integration(root: &Path, folder: &Path, name: &str, tag: &str) -> Res
         if record.backup_sha256.as_deref() != Some(&crate::digest(&backup)?) {
             return Err("shortcut backup integrity check failed".into());
         }
-        let temp = path.with_extension("restore.lnk");
-        kavychka_storage::preview::no_link_chain(&temp)?;
+        let stage = ShortcutStage::new(folder)?;
+        let temp = stage.file();
         std::fs::copy(backup, &temp)?;
         replace(&temp, &path)?;
     } else if path.exists() {
@@ -333,6 +373,17 @@ pub fn verify_shortcuts(evidence: &Path) -> Result<()> {
     std::fs::write(&old, b"old; never executed")?;
     shortcut(&path, &old, "")?;
     let old_hash = crate::digest(&path)?;
+    let neighbors = [
+        path.with_extension("next.lnk"),
+        path.with_extension("restore.lnk"),
+    ];
+    for neighbor in &neighbors {
+        shortcut(neighbor, &old, "unrelated user shortcut")?;
+    }
+    let neighbor_hashes = neighbors
+        .iter()
+        .map(|p| crate::digest(p))
+        .collect::<Result<Vec<_>>>()?;
     startup_in(&root, &folder, true)?;
     if crate::digest(&path)? == old_hash {
         return Err("startup target not replaced".into());
@@ -344,6 +395,14 @@ pub fn verify_shortcuts(evidence: &Path) -> Result<()> {
     restore_startup_in(&root, &folder)?;
     if crate::digest(&path)? != old_hash {
         return Err("original shortcut not restored".into());
+    }
+    for (neighbor, expected) in neighbors.iter().zip(&neighbor_hashes) {
+        if crate::digest(neighbor)? != *expected {
+            return Err("shortcut staging changed an existing neighboring shortcut".into());
+        }
+    }
+    if std::fs::read_dir(&folder)?.count() != 3 {
+        return Err("shortcut staging left temporary files or directories".into());
     }
     let clean = evidence.join("fresh-program");
     let guard = crate::install::owned(&clean)?;
@@ -366,6 +425,6 @@ pub fn verify_shortcuts(evidence: &Path) -> Result<()> {
     }
     crate::atomic(
         &evidence.join("result.json"),
-        &serde_json::json!({"passed":true,"real_windows_shortcuts":true,"replacement_disable_restore":true,"initial_absence_restored":true,"unrelated_files_preserved":true,"external_edits_retained":true,"system_startup_changed":false}),
+        &serde_json::json!({"passed":true,"real_windows_shortcuts":true,"replacement_disable_restore":true,"initial_absence_restored":true,"unrelated_files_preserved":true,"neighboring_shortcuts_preserved":true,"temporary_staging_removed":true,"external_edits_retained":true,"system_startup_changed":false}),
     )
 }

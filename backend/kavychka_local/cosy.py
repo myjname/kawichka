@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import queue
@@ -8,6 +9,50 @@ import time
 from pathlib import Path
 from .downloads import checkpoint
 from .llama import WindowsJob
+
+def prepare_precision(llm, cuda_available):
+    """CPU inputs are float32; pretrained Qwen's config may default to BF16."""
+    if not cuda_available:
+        llm.float()
+
+def cached_attention_mask(xs, masks, cache):
+    """Cosy generates unpadded utterances; cached keys remain valid context.
+
+    Its upstream step mask covers only the new tokens. Recent HF attention
+    implementations require a mask spanning cached AND new keys, rather than
+    broadcasting a length-one mask over the cache.
+    """
+    if cache is None:
+        return masks
+    past = cache.get_seq_length() if hasattr(cache, "get_seq_length") else cache[0][0].shape[-2]
+    if not past or masks.shape[-1] == past + xs.shape[1]:
+        return masks
+    if masks.shape[-1] != xs.shape[1]:
+        raise ValueError("CosyVoice attention mask does not match the current or cached sequence")
+    import torch
+    prefix = masks.new_ones((*masks.shape[:-1], past))
+    return torch.cat((prefix, masks), dim=-1)
+
+@contextlib.contextmanager
+def inference_errors():
+    """Surface a failed private LLM thread before publishing a partial wave."""
+    previous = threading.excepthook
+    failures = []
+    def capture(args):
+        failures.append(args.exc_value)
+        previous(args)  # Preserve the original traceback in the private log.
+    threading.excepthook = capture
+    try:
+        try:
+            yield
+        except BaseException:
+            if not failures:
+                raise
+        if failures:
+            error = failures[0]
+            raise RuntimeError("CosyVoice generation thread failed: " + type(error).__name__ + ": " + str(error)) from error
+    finally:
+        threading.excepthook = previous
 
 
 class Cosy:

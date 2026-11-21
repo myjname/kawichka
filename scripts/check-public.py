@@ -5,9 +5,13 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED_ROOTS = {".github", "assets", "backend", "docs", "scripts", "src", "tests", "next", "prototypes"}
-ALLOWED_TOP = {".gitignore", ".gitattributes", "README.md", "START.bat", "LICENSE"}
+ALLOWED_ROOTS = {".github", "assets", "backend", "docs", "scripts", "tests", "next", "prototypes"}
+ALLOWED_TOP = {".gitignore", ".gitattributes", "README.md", "LICENSE"}
 ALLOWED_EXTENSIONS = {".cs", ".py", ".json", ".ps1", ".bat", ".md", ".yml", ".yaml", ".txt", ".rs", ".toml", ".lock", ".slint", ".svg", ".csproj", ".config", ".manifest"}
+PRESET_SOURCE_MODULES = {
+    "next/crates/storage/src/presets/packs.rs",
+    "next/crates/storage/src/presets/packs_tests.rs",
+}
 SECRET_PATTERNS = (
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
     re.compile(rb"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
@@ -20,7 +24,7 @@ SECRET_PATTERNS = (
 def check():
     output = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "--cached", "--others", "--exclude-standard", "-z"])
     names = {name.decode("utf-8") for name in output.split(b"\0") if name}
-    if "src/Kavychka.cs" not in names or "assets/voice/default-en.wav" not in names:
+    if "next/Cargo.toml" not in names or "assets/voice/default-en.wav" not in names:
         raise ValueError("The public source selection is incomplete")
     issues = []
     for name in sorted(names):
@@ -28,7 +32,7 @@ def check():
         if name not in ALLOWED_TOP and (len(path.parts) < 2 or path.parts[0] not in ALLOWED_ROOTS):
             issues.append(name + ": unexpected source path")
             continue
-        if any(part in {"presets", "runtime", "models", "__pycache__", "user-legacy", "data"} for part in path.parts):
+        if any(part in {"presets", "runtime", "models", "__pycache__", "user-legacy", "data"} for part in path.parts) and name not in PRESET_SOURCE_MODULES:
             issues.append(name + ": user data or runtime in source")
             continue
         if path.suffix.lower() == ".wav":

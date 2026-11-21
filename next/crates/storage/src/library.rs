@@ -90,6 +90,10 @@ fn query_phrases(
         .map_err(Error::from)
 }
 impl Sandbox {
+    /// Counts are independent of page and do not materialize the phrase history.
+    pub fn phrase_totals(&self, day: &str) -> Result<(usize, usize)> {
+        Ok(self.connection.query_row("SELECT COUNT(*),COALESCE(SUM(CASE WHEN day=?1 THEN 1 ELSE 0 END),0) FROM phrases WHERE deleted=0",[day],|row|Ok((row.get::<_,i64>(0)?.max(0) as usize,row.get::<_,i64>(1)?.max(0) as usize)))?)
+    }
     pub fn set_recovery_limit(&mut self, bytes: u64) -> Result<()> {
         let mut prefs = self.load()?;
         prefs.desktop.recovery_limit_bytes = bytes;
@@ -222,8 +226,8 @@ impl Sandbox {
         }
         if !prefs.desktop.character_preset.is_empty() {
             let p = crate::presets::read(&self.root, &prefs.desktop.character_preset)?;
-            if let crate::presets::Content::Character { description } = p.content {
-                prefs.generation.character_description = description
+            if let Some(description) = p.content.description() {
+                prefs.generation.character_description = description.into()
             } else {
                 return Err(Error::Invalid(
                     "selected character preset has another kind".into(),
@@ -232,7 +236,7 @@ impl Sandbox {
         }
         if !prefs.desktop.visual_preset.is_empty() {
             let p = crate::presets::read(&self.root, &prefs.desktop.visual_preset)?;
-            if !matches!(p.content, crate::presets::Content::Visual { .. }) {
+            if p.content.visual().is_none() {
                 return Err(Error::Invalid(
                     "selected visual preset has another kind".into(),
                 ));
@@ -240,7 +244,7 @@ impl Sandbox {
         }
         if !prefs.generation.voice_profile.is_empty() {
             let p = crate::presets::read(&self.root, &prefs.generation.voice_profile)?;
-            if !matches!(p.content, crate::presets::Content::Voice { .. }) {
+            if p.content.references().is_none() {
                 return Err(Error::Invalid(
                     "selected voice preset has another kind".into(),
                 ));
@@ -492,6 +496,108 @@ impl Sandbox {
             [id],
             |r| r.get(0),
         )?)
+    }
+    /// Current and history are disjoint; history also retains unused old rows.
+    pub fn phrase_group_page(
+        &self,
+        day: &str,
+        current: bool,
+        page: usize,
+    ) -> Result<(Vec<Phrase>, usize, usize)> {
+        let predicate = if current {
+            "day=?1"
+        } else {
+            "(day IS NULL OR day<>?1)"
+        };
+        let total: i64 = self.connection.query_row(
+            &format!("SELECT count(*) FROM phrases WHERE deleted=0 AND {predicate}"),
+            [day],
+            |r| r.get(0),
+        )?;
+        let total = total.max(0) as usize;
+        let page = page.min(total.saturating_sub(1) / 50);
+        let rows = query_phrases(
+            &self.connection,
+            &format!(
+                "WHERE deleted=0 AND {predicate} ORDER BY created_at DESC,id LIMIT 50 OFFSET ?2"
+            ),
+            params![day, (page * 50) as i64],
+        )?;
+        Ok((rows, total, page))
+    }
+    /// Consumption precedes playback; only a completion fact means played.
+    pub fn phrase_delivery_state(&self, id: &str) -> Result<Option<String>> {
+        Ok(self.phrase_delivery_states(&[self.phrase(id)?])?.remove(id))
+    }
+    /// One scan for a bounded page without changing the profile SQLite schema.
+    pub fn phrase_delivery_states(
+        &self,
+        rows: &[Phrase],
+    ) -> Result<std::collections::BTreeMap<String, String>> {
+        let ids = serde_json::to_string(&rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>())?;
+        let mut query=self.connection.prepare("SELECT c.phrase_id,m.json FROM delivery_claims c JOIN library_meta m ON m.key='delivery_journal:'||c.notice WHERE c.phrase_id IN (SELECT value FROM json_each(?1))")?;
+        let mut result = std::collections::BTreeMap::new();
+        for row in query.query_map([ids], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })? {
+            let (id, raw) = row?;
+            let journal: crate::delivery::DeliveryJournal = serde_json::from_str(&raw)?;
+            let order = [
+                "audio_completed",
+                "audio_failed",
+                "audio_cancelled",
+                "audio_started",
+                "audio_preparing",
+                "shown",
+                "committed",
+            ];
+            if let Some(rank) = order.iter().position(|p| journal.phases.contains_key(*p)) {
+                let old = result
+                    .get(&id)
+                    .and_then(|p: &String| order.iter().position(|known| *known == p));
+                if old.is_none_or(|previous| rank < previous) {
+                    result.insert(id, order[rank].to_string());
+                }
+            }
+        }
+        Ok(result)
+    }
+    /// Remove from lists and queue, retaining text/context and audio recovery.
+    pub fn hide_phrase(&self, id: &str) -> Result<()> {
+        if self.connection.execute(
+            "UPDATE phrases SET deleted=1 WHERE id=?1 AND deleted=0",
+            [id],
+        )? != 1
+        {
+            return Err(Error::Invalid("phrase not found or already removed".into()));
+        }
+        Ok(())
+    }
+    /// All-or-nothing selection changes; unknown/stale IDs never partly mutate a batch.
+    pub fn change_phrases(&self, ids: &[String], keep: Option<bool>) -> Result<()> {
+        if ids.is_empty()
+            || ids.iter().collect::<std::collections::BTreeSet<_>>().len() != ids.len()
+        {
+            return Err(Error::Invalid("empty or duplicate phrase selection".into()));
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        let selection = serde_json::to_string(ids)?;
+        let count: i64 = tx.query_row("SELECT count(*) FROM phrases WHERE deleted=0 AND id IN (SELECT value FROM json_each(?1))", [&selection], |r| r.get(0))?;
+        if count as usize != ids.len() {
+            return Err(Error::Invalid(
+                "phrase selection changed; select again".into(),
+            ));
+        }
+        if let Some(keep) = keep {
+            tx.execute("UPDATE phrases SET approved=?2,rejected=?3 WHERE id IN (SELECT value FROM json_each(?1))", params![selection,keep,!keep])?;
+        } else {
+            tx.execute(
+                "UPDATE phrases SET deleted=1 WHERE id IN (SELECT value FROM json_each(?1))",
+                [&selection],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
     /// A stopped child owns only this flat audio staging folder. Logs are retained.
     pub fn cleanup_staging(&self, job: &Path) -> Result<()> {
@@ -1083,6 +1189,40 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn bulk_changes_are_atomic_and_removal_keeps_text_and_playback_history() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let a = phrase();
+        let mut b = a.clone();
+        b.id = "second".into();
+        store.accept_phrase(&a, None).unwrap();
+        store.accept_phrase(&b, None).unwrap();
+        assert!(
+            store
+                .change_phrases(&[a.id.clone(), "missing".into()], None)
+                .is_err()
+        );
+        assert!(!store.phrase(&a.id).unwrap().deleted);
+        let ids = vec![a.id.clone(), b.id.clone()];
+        store.change_phrases(&ids, Some(false)).unwrap();
+        assert!(ids.iter().all(|id| store.phrase(id).unwrap().rejected));
+        store.change_phrases(&ids, Some(true)).unwrap();
+        store.connection.execute_batch("CREATE TRIGGER fail_bulk BEFORE UPDATE ON phrases WHEN NEW.id='second' AND NEW.deleted=1 BEGIN SELECT RAISE(ABORT,'bulk fixture');END;").unwrap();
+        assert!(store.change_phrases(&ids, None).is_err());
+        assert!(ids.iter().all(|id| !store.phrase(id).unwrap().deleted));
+        store
+            .connection
+            .execute_batch("DROP TRIGGER fail_bulk")
+            .unwrap();
+        store.change_phrases(&ids, None).unwrap();
+        for id in ids {
+            let row = store.phrase(&id).unwrap();
+            assert!(row.deleted);
+            assert_eq!(row.text, a.text);
+            assert!(row.used_at.is_none());
+        }
+    }
+    #[test]
     fn copying_asset_never_truncates_a_neighbor_with_copying_extension() {
         let dir = temp();
         let source = dir.path().join("source.wav");
@@ -1185,7 +1325,9 @@ mod tests {
     fn temp() -> tempfile::TempDir {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../work/library-tests");
         std::fs::create_dir_all(&root).unwrap();
-        tempfile::tempdir_in(root).unwrap()
+        // Resolve `..`: the fallback for a vanished source only normalizes
+        // lexically on Windows, so a canonical root keeps the test portable.
+        tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap()
     }
     fn fixture(root: &Path) -> PathBuf {
         let source = root.join("old");
@@ -1503,6 +1645,84 @@ mod tests {
             store
                 .save_delivery(&prefs, &state, Some(("notice2", "ready")))
                 .is_err()
+        );
+    }
+    #[test]
+    fn current_history_and_playback_facts_do_not_confuse_consumption_with_completion() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let ready = phrase();
+        store.accept_phrase(&ready, None).unwrap();
+        let mut old = ready.clone();
+        old.id = "old-unused".into();
+        old.day = Some("2026-10-22".into());
+        old.text = "Старая неиспользованная фраза".into();
+        store.accept_phrase(&old, None).unwrap();
+        assert_eq!(store.phrase_group_page("2026-10-23", true, 0).unwrap().1, 1);
+        assert_eq!(
+            store.phrase_group_page("2026-10-23", false, 0).unwrap().0[0].id,
+            "old-unused"
+        );
+        assert!(store.phrase_delivery_state("ready").unwrap().is_none());
+        store
+            .save_delivery(
+                &Preferences::default(),
+                &State::default(),
+                Some(("delivery-test", "ready")),
+            )
+            .unwrap();
+        assert_eq!(
+            store.phrase_delivery_state("ready").unwrap().as_deref(),
+            Some("committed")
+        );
+        store
+            .delivery_phase("delivery-test", "audio_cancelled")
+            .unwrap();
+        assert_eq!(
+            store.phrase_delivery_state("ready").unwrap().as_deref(),
+            Some("audio_cancelled")
+        );
+        store
+            .delivery_phase("delivery-test", "audio_completed")
+            .unwrap();
+        assert_eq!(
+            store.phrase_delivery_state("ready").unwrap().as_deref(),
+            Some("audio_completed")
+        );
+        store
+            .connection
+            .execute(
+                "INSERT INTO delivery_claims VALUES('later-without-audio','ready')",
+                [],
+            )
+            .unwrap();
+        crate::delivery::write_phase(
+            &store.connection,
+            "later-without-audio",
+            "committed",
+            &[],
+            Some("ready"),
+        )
+        .unwrap();
+        assert_eq!(
+            store.phrase_delivery_state("ready").unwrap().as_deref(),
+            Some("audio_completed")
+        );
+        store.hide_phrase("ready").unwrap();
+        assert_eq!(store.phrase_group_page("2026-10-23", true, 0).unwrap().1, 0);
+        assert_eq!(store.phrase("ready").unwrap().text, ready.text);
+        assert!(
+            store
+                .phrases()
+                .unwrap()
+                .iter()
+                .any(|p| p.id == "ready" && p.deleted)
+        );
+        assert!(
+            store
+                .choose("2026-10-23", "break", false, "ru")
+                .unwrap()
+                .is_none()
         );
     }
     #[test]

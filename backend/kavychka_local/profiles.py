@@ -82,7 +82,7 @@ class Profiles:
             item["references"] = [{"file": ref["file"], "transcript": ref.get("transcript", "")} for ref in refs]
         if kind == "visual":
             item.setdefault("layout", "auto")
-            if item["layout"] not in ("auto", "image", "codex"):
+            if item["layout"] not in ("auto", "image", "codex", "pixel", "smooth"):
                 raise ValueError("Invalid visual layout")
         return item
 
@@ -92,7 +92,17 @@ class Profiles:
             item = read_json(folder / "profile.json")
             refs = item["references"] if "references" in item else [{"file": item["file"], "transcript": item.get("transcript", "")}]
         else:
-            folder, item = self.get(ident, "voice")
+            # Complete characters keep voice/visual media in the same portable
+            # folder. Independently selected legacy voice presets still work.
+            if not isinstance(ident, str) or not ident.isalnum():
+                raise ValueError("Invalid preset")
+            folder = inside(self.root, ident)
+            item = read_json(folder / "preset.json")
+            if item.get("kind") == "character_pack":
+                item = self.clean(dict(version=item.get("version"), kind="voice",
+                                       name=item.get("name", ""), references=item.get("references", [])), "voice")
+            else:
+                folder, item = self.get(ident, "voice")
             refs = item["references"]
         result = []
         for ref in refs:
@@ -150,10 +160,16 @@ class Profiles:
                 item = read_json(stage / "preset.json")
                 item = self.clean(item, kind)
                 if kind == "voice":
-                    for index, ref in enumerate(item["references"]):
-                        normalized = "normalized%d.flac" % index
-                        self.normalize_audio(inside(stage, ref["file"]), stage / normalized)
-                        ref["file"] = normalized
+                    # Imported inputs may already use our normalized names.
+                    # Decode every reference before replacing any input file.
+                    with tempfile.TemporaryDirectory(dir=stage) as normalized_dir:
+                        normalized_root = Path(normalized_dir)
+                        for index, ref in enumerate(item["references"]):
+                            self.normalize_audio(inside(stage, ref["file"]), normalized_root / ("normalized%d.flac" % index))
+                        for index, ref in enumerate(item["references"]):
+                            normalized = "normalized%d.flac" % index
+                            (normalized_root / normalized).replace(stage / normalized)
+                            ref["file"] = normalized
             else:
                 item = {"version": 1, "kind": kind, "name": (name or source.stem)[:80]}
                 if kind == "voice":
@@ -238,13 +254,22 @@ class Profiles:
             if result.returncode:
                 raise ValueError("Cannot decode this audio file")
         else:
-            samples, rate = sf.read(source, dtype="float32", always_2d=True)
-            if len(samples) / rate > 30:
-                raise ValueError("Reference is longer than 30 seconds")
-            sf.write(target, samples.mean(axis=1), rate, format="FLAC")
+            # Check metadata before decoding: a small compressed input can
+            # otherwise allocate hours of audio. Downmix in bounded blocks.
+            with sf.SoundFile(source) as audio:
+                if audio.samplerate <= 0 or audio.channels < 1 or not 1 <= audio.frames / audio.samplerate <= 30:
+                    raise ValueError("Reference must contain 1–30 seconds of speech")
+                with sf.SoundFile(target, "w", samplerate=audio.samplerate, channels=1, format="FLAC") as output:
+                    for block in audio.blocks(blocksize=max(1, 16384 // audio.channels), dtype="float32", always_2d=True):
+                        output.write(block.mean(axis=1))
 
     def export(self, ident, kind, target):
-        target = Path(target).resolve()
+        target = Path(target)
+        if not target.is_absolute() or target.suffix.casefold() != ".kavychka":
+            raise ValueError("Export needs an absolute path ending in .kavychka")
+        if target.is_symlink() or target.is_dir() or not target.parent.is_dir():
+            raise ValueError("Choose a regular file in an existing folder")
+        target = target.resolve()
         if target == self.root.resolve() or self.root.resolve() in target.parents:
             raise ValueError("Export outside the preset library")
         folder, item = self.get(ident, kind)
@@ -254,9 +279,12 @@ class Profiles:
             names += [ref["file"] for ref in item["references"]]
         elif kind == "visual":
             names += [item["file"]]
-        partial = target.with_name(target.name + ".part")
+        # A fresh, exclusively created temporary name: a pre-made "<name>.part" (or a
+        # link with that name) can never redirect the write to another file.
+        handle, name_ = tempfile.mkstemp(prefix=".kavychka-export-", suffix=".part", dir=target.parent)
+        partial = Path(name_)
         try:
-            with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED) as archive:
+            with os.fdopen(handle, "wb") as raw, zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as archive:
                 archive.writestr("preset.json", json.dumps(item, ensure_ascii=False, indent=2))
                 for name in names[1:]:
                     archive.write(inside(folder, name), name)

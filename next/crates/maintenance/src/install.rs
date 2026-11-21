@@ -598,13 +598,16 @@ pub fn apply_with_source(
     let manifest = package::manifest(setup)?;
     let old = current(root)?;
     if let Some(old) = &old {
-        if old.common != common {
+        if resolved(&old.common)? != resolved(common)? {
             return Err("update must keep the existing data folder".into());
         }
         if package::version(&manifest.version)? <= package::version(&old.version)? {
             return Err("update must be newer; use explicit rollback for an older version".into());
         }
     }
+    // Accept equivalent input spelling without rewriting the journal's data root.
+    // Recovery requires previous/candidate data paths to retain the same identity.
+    let common = old.as_ref().map_or(common, |old| old.common.as_path());
     if initially_empty_common {
         fs::create_dir_all(common)?;
         let marker = common.join("storage-owner.json");
