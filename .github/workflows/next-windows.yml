@@ -20,6 +20,19 @@ on:
 permissions:
   contents: read
 jobs:
+  portable-core:
+    if: github.event_name != 'workflow_dispatch' || inputs.source_run_id == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Test platform-independent crates
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup override set 1.99.0
+          cargo test --manifest-path next/Cargo.toml -p kavychka-core -p kavychka-storage --locked
   verify:
     if: github.event_name != 'workflow_dispatch' || inputs.source_run_id == ''
     runs-on: windows-2022
@@ -92,9 +105,9 @@ jobs:
   draft-release:
     if: >-
       always() &&
-      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/next-v') && needs.verify.result == 'success') ||
+      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/next-v') && needs.verify.result == 'success' && needs.portable-core.result == 'success') ||
        (github.event_name == 'workflow_dispatch' && inputs.source_run_id != '' && inputs.release_tag != ''))
-    needs: verify
+    needs: [verify, portable-core]
     runs-on: windows-2022
     timeout-minutes: 10
     permissions:
@@ -134,6 +147,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not read source checks' }
           $verified=@(($jobsJson | ConvertFrom-Json).jobs | Where-Object name -CEQ 'verify')
           if ($verified.Count -ne 1 -or $verified[0].conclusion -cne 'success') { throw 'Source verification has not succeeded' }
+          $portable=@(($jobsJson | ConvertFrom-Json).jobs | Where-Object name -CEQ 'portable-core')
+          if ($portable.Count -ne 1 -or $portable[0].conclusion -cne 'success') { throw 'Linux core checks have not succeeded for the source run' }
           gh run download $env:SOURCE_RUN_ID --name kavychka-next-windows-candidate --dir release
           if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed' }
           $version=./next/Get-release-version.ps1 -Tag $env:RELEASE_TAG
