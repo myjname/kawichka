@@ -12,6 +12,112 @@ use std::{
 pub const API: &str = "https://api.github.com/repos/myjname/kawichka/releases?per_page=30";
 const PREFIX: &str = "https://github.com/myjname/kawichka/releases/download/";
 pub const ASSET: &str = "Kavychka-Next-Setup.exe";
+pub const MANIFEST: &str = "update-manifest.json";
+pub const SIGNATURE: &str = "update-manifest.json.minisig";
+const MANIFEST_LIMIT: usize = 16 * 1024;
+/// Public minisign keys accepted for update manifests. The matching secret keys
+/// are kept offline by the maintainer, never on GitHub. The second key is the
+/// backup, so a lost primary key does not strand installed copies.
+pub const TRUSTED_KEYS: &[&str] = &[
+    "RWSzq3pkt4ilTDxJVrhBXoSffVBaB37ZDco2K95dhAA9n/4f1R8QSyTv",
+    "RWTp+5F7TBhy0nep3ITxUi6tFr4ActtJEJZKic9HsV9TPVfGpxKzBEyX",
+];
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SignedManifest {
+    schema: u32,
+    version: String,
+    asset: String,
+    sha256: String,
+    bytes: u64,
+}
+fn has_exact_asset(assets: &[serde_json::Value], tag: &str, name: &str) -> bool {
+    let matches: Vec<_> = assets.iter().filter(|a| a["name"] == name).collect();
+    matches.len() == 1
+        && matches[0]["browser_download_url"].as_str()
+            == Some(format!("{PREFIX}next-v{tag}/{name}").as_str())
+}
+/// The manifest binds version, file name, size and SHA-256 under a key that is
+/// not stored on GitHub, so a replaced release asset or edited digest is refused.
+pub fn verify_manifest(
+    release: &Release,
+    manifest: &[u8],
+    signature: &[u8],
+    keys: &[&str],
+) -> Result<()> {
+    let signature = minisign_verify::Signature::decode(
+        std::str::from_utf8(signature).map_err(|_| "invalid update signature")?,
+    )
+    .map_err(|_| "invalid update signature")?;
+    let trusted = keys.iter().any(|key| {
+        minisign_verify::PublicKey::from_base64(key)
+            .is_ok_and(|key| key.verify(manifest, &signature, false).is_ok())
+    });
+    if !trusted {
+        return Err("Подпись обновления не подтверждена / Update signature is not trusted".into());
+    }
+    let signed: SignedManifest = serde_json::from_slice(manifest)?;
+    if signed.schema != 1
+        || signed.version != release.version
+        || signed.asset != ASSET
+        || !signed.sha256.eq_ignore_ascii_case(&release.sha256)
+        || signed.bytes != release.bytes
+    {
+        return Err("Signed update manifest does not match this release".into());
+    }
+    Ok(())
+}
+fn fetch_small(url: &str, cancel: &AtomicBool) -> Result<Vec<u8>> {
+    let mut command = std::process::Command::new(curl()?);
+    command
+        .args([
+            "--disable",
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--location",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
+            "--max-time",
+            "30",
+            "--max-filesize",
+            &MANIFEST_LIMIT.to_string(),
+            url,
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    crate::windows::hide(&mut command);
+    let mut child = command.spawn()?;
+    let mut out = child.stdout.take().ok_or("missing curl output")?;
+    let reader = std::thread::spawn(move || {
+        let mut b = vec![];
+        out.by_ref()
+            .take(MANIFEST_LIMIT as u64 + 1)
+            .read_to_end(&mut b)
+            .map(|_| b)
+    });
+    loop {
+        if cancel.load(Ordering::Acquire) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err("update check cancelled".into());
+        }
+        if let Some(status) = child.try_wait()? {
+            let b = reader.join().map_err(|_| "HTTP reader failed")??;
+            if !status.success() || b.len() > MANIFEST_LIMIT {
+                return Err(
+                    "Не удалось получить подпись обновления / Could not fetch update signature"
+                        .into(),
+                );
+            }
+            return Ok(b);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Release {
@@ -47,6 +153,10 @@ pub fn parse(bytes: &[u8], current: &str) -> Result<Option<Release>> {
         }
         if matches.len() != 1 {
             return Err("duplicate setup asset".into());
+        }
+        // Releases without a signed manifest are never offered.
+        if !has_exact_asset(assets, tag, MANIFEST) || !has_exact_asset(assets, tag, SIGNATURE) {
+            continue;
         }
         let a = matches[0];
         let url = a["browser_download_url"]
@@ -150,7 +260,22 @@ fn check_with_ca(
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
+/// Fetch and check the signed manifest for a release. The fetcher is injectable so
+/// the whole decision (listing, manifest, signature, key) is testable offline.
+fn authenticate_release(
+    release: &Release,
+    cancel: &AtomicBool,
+    fetch: &dyn Fn(&str, &AtomicBool) -> Result<Vec<u8>>,
+    keys: &[&str],
+) -> Result<()> {
+    package::version(&release.version)?;
+    let base = format!("{PREFIX}next-v{}/", release.version);
+    let manifest = fetch(&format!("{base}{MANIFEST}"), cancel)?;
+    let signature = fetch(&format!("{base}{SIGNATURE}"), cancel)?;
+    verify_manifest(release, &manifest, &signature, keys)
+}
 pub fn download(release: &Release, root: &Path, cancel: Arc<AtomicBool>) -> Result<PathBuf> {
+    authenticate_release(release, &cancel, &fetch_small, TRUSTED_KEYS)?;
     download_with_ca(release, root, cancel, None)
 }
 fn download_with_ca(
@@ -363,7 +488,7 @@ mod tests {
     }
     #[test]
     fn releases_require_rust_channel_exact_origin_and_digest() {
-        let mut v = json!([{"draft":false,"prerelease":false,"tag_name":"v99.0.0","assets":[]},{"draft":false,"prerelease":false,"tag_name":"next-v0.2.0","body":"Release notes","assets":[{"name":ASSET,"browser_download_url":format!("{PREFIX}next-v0.2.0/{ASSET}"),"digest":format!("sha256:{}","a".repeat(64)),"size":5000}]}]);
+        let mut v = json!([{"draft":false,"prerelease":false,"tag_name":"v99.0.0","assets":[]},{"draft":false,"prerelease":false,"tag_name":"next-v0.2.0","body":"Release notes","assets":[{"name":ASSET,"browser_download_url":format!("{PREFIX}next-v0.2.0/{ASSET}"),"digest":format!("sha256:{}","a".repeat(64)),"size":5000},{"name":MANIFEST,"browser_download_url":format!("{PREFIX}next-v0.2.0/{MANIFEST}")},{"name":SIGNATURE,"browser_download_url":format!("{PREFIX}next-v0.2.0/{SIGNATURE}")}]}]);
         assert_eq!(
             parse(&serde_json::to_vec(&v).unwrap(), "0.1.0")
                 .unwrap()
@@ -378,5 +503,141 @@ mod tests {
         );
         v[1]["assets"][0]["browser_download_url"] = json!("https://evil.invalid/setup.exe");
         assert!(parse(&serde_json::to_vec(&v).unwrap(), "0.1.0").is_err());
+    }
+    #[test]
+    fn release_without_signed_manifest_is_not_offered() {
+        let v = json!([{"draft":false,"prerelease":false,"tag_name":"next-v0.2.0","assets":[{"name":ASSET,"browser_download_url":format!("{PREFIX}next-v0.2.0/{ASSET}"),"digest":format!("sha256:{}","a".repeat(64)),"size":5000}]}]);
+        assert!(
+            parse(&serde_json::to_vec(&v).unwrap(), "0.1.0")
+                .unwrap()
+                .is_none()
+        );
+    }
+    fn signed(manifest: &str, key: &minisign::KeyPair) -> (Vec<u8>, Vec<u8>) {
+        let sig = minisign::sign(
+            Some(&key.pk),
+            &key.sk,
+            std::io::Cursor::new(manifest.as_bytes()),
+            None,
+            None,
+        )
+        .unwrap();
+        (manifest.as_bytes().to_vec(), sig.to_string().into_bytes())
+    }
+    fn release() -> Release {
+        Release {
+            version: "0.2.0".into(),
+            url: format!("{PREFIX}next-v0.2.0/{ASSET}"),
+            sha256: "ab".repeat(32),
+            bytes: 5000,
+            notes: String::new(),
+        }
+    }
+    fn manifest_text(version: &str, sha: &str, bytes: u64) -> String {
+        format!(
+            r#"{{"schema":1,"version":"{version}","asset":"{ASSET}","sha256":"{sha}","bytes":{bytes}}}"#
+        )
+    }
+    #[test]
+    fn signed_manifest_must_match_trusted_key_and_release() {
+        let good = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let other = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let key = good.pk.to_base64();
+        let r = release();
+        let (m, s) = signed(&manifest_text("0.2.0", &"ab".repeat(32), 5000), &good);
+        verify_manifest(&r, &m, &s, &[&key]).unwrap();
+        // Unknown signer.
+        assert!(verify_manifest(&r, &m, &s, &[&other.pk.to_base64()]).is_err());
+        // Edited manifest after signing.
+        let edited = manifest_text("0.2.0", &"cd".repeat(32), 5000);
+        assert!(verify_manifest(&r, edited.as_bytes(), &s, &[&key]).is_err());
+        // Validly signed, but for another hash, size or version (rollback or swap).
+        for text in [
+            manifest_text("0.2.0", &"cd".repeat(32), 5000),
+            manifest_text("0.2.0", &"ab".repeat(32), 5001),
+            manifest_text("0.1.9", &"ab".repeat(32), 5000),
+        ] {
+            let (m, s) = signed(&text, &good);
+            assert!(verify_manifest(&r, &m, &s, &[&key]).is_err());
+        }
+        // Garbage signature.
+        assert!(verify_manifest(&r, &m, b"nonsense", &[&key]).is_err());
+    }
+    #[test]
+    fn embedded_public_keys_are_valid() {
+        for key in TRUSTED_KEYS {
+            minisign_verify::PublicKey::from_base64(key).unwrap();
+        }
+    }
+    #[test]
+    fn repository_key_files_match_the_embedded_keys() {
+        let files = [
+            include_str!("../../../update-keys/kavychka.pub"),
+            include_str!("../../../update-keys/kavychka-backup.pub"),
+        ];
+        let from_files: Vec<&str> = files
+            .iter()
+            .map(|f| f.lines().nth(1).unwrap().trim())
+            .collect();
+        assert_eq!(from_files, TRUSTED_KEYS);
+    }
+    /// Release listing -> offered release -> signed manifest check, as the app does it.
+    #[test]
+    fn signed_update_end_to_end_decision() {
+        use std::collections::HashMap;
+        let key = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let pk = key.pk.to_base64();
+        let setup = b"installer-bytes".repeat(100);
+        let sha = {
+            use sha2::{Digest, Sha256};
+            format!("{:x}", Sha256::digest(&setup))
+        };
+        let tag = "0.2.0";
+        let listing = |digest: &str, with_files: bool| {
+            let mut assets = vec![
+                json!({"name":ASSET,"browser_download_url":format!("{PREFIX}next-v{tag}/{ASSET}"),"digest":format!("sha256:{digest}"),"size":setup.len()}),
+            ];
+            if with_files {
+                for n in [MANIFEST, SIGNATURE] {
+                    assets.push(
+                        json!({"name":n,"browser_download_url":format!("{PREFIX}next-v{tag}/{n}")}),
+                    );
+                }
+            }
+            serde_json::to_vec(&json!([{"draft":false,"prerelease":false,"tag_name":format!("next-v{tag}"),"assets":assets}])).unwrap()
+        };
+        // Exactly what next/tools/Sign-release.ps1 writes: ordered keys, compact JSON.
+        let manifest = format!(
+            r#"{{"schema":1,"version":"{tag}","asset":"{ASSET}","sha256":"{sha}","bytes":{}}}"#,
+            setup.len()
+        );
+        let (m, sig) = signed(&manifest, &key);
+        let base = format!("{PREFIX}next-v{tag}/");
+        let mut served: HashMap<String, Vec<u8>> = HashMap::new();
+        served.insert(format!("{base}{MANIFEST}"), m);
+        served.insert(format!("{base}{SIGNATURE}"), sig);
+        let fetch = |url: &str, _: &AtomicBool| -> Result<Vec<u8>> {
+            served.get(url).cloned().ok_or_else(|| "404".into())
+        };
+        let cancel = AtomicBool::new(false);
+        let keys = [pk.as_str()];
+        // Honest release is offered and authenticates.
+        let release = parse(&listing(&sha, true), "0.1.0").unwrap().unwrap();
+        authenticate_release(&release, &cancel, &fetch, &keys).unwrap();
+        // Attacker edits the digest in the GitHub listing: authentication fails.
+        let forged = parse(&listing(&"0".repeat(64), true), "0.1.0")
+            .unwrap()
+            .unwrap();
+        assert!(authenticate_release(&forged, &cancel, &fetch, &keys).is_err());
+        // Unsigned release is never offered.
+        assert!(parse(&listing(&sha, false), "0.1.0").unwrap().is_none());
+        // Signature files missing on the server or signed by another key.
+        let empty = |_: &str, _: &AtomicBool| -> Result<Vec<u8>> { Err("404".into()) };
+        assert!(authenticate_release(&release, &cancel, &empty, &keys).is_err());
+        let other = minisign::KeyPair::generate_unencrypted_keypair()
+            .unwrap()
+            .pk
+            .to_base64();
+        assert!(authenticate_release(&release, &cancel, &fetch, &[other.as_str()]).is_err());
     }
 }
