@@ -21,7 +21,7 @@ windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Stor
 [dev-dependencies]
 tempfile.workspace = true
 rusqlite.workspace = true
-minisign = "=0.7.9"
+minisign = "=0.10.0"
 
 [[bin]]
 name = "Kavychka"
