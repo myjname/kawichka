@@ -12,6 +12,143 @@ worker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(worker)
 
 class WorkerContractTests(unittest.TestCase):
+    def test_llama_environment_fallback_uses_the_qualified_executable(self):
+        import json
+        from kavychka_local.engine import Engine
+        cases = [('obsolete', False, True, False, False),
+                 ('current-cpu', False, False, False, False),
+                 ('current-cpu', False, True, True, True),
+                 ('current-cpu', False, True, False, False)]
+        for revision, own_gpu, own_executable, external_gpu, want_gpu in cases:
+            with self.subTest(revision=revision, own_executable=own_executable,
+                              external_gpu=external_gpu, want_gpu=want_gpu), tempfile.TemporaryDirectory(dir=ROOT/'work') as directory:
+                base = Path(directory)
+                app, library, external = base/'app', base/'library', base/'external'
+                job, managed = library/'jobs/job-test', library/'components'
+                job.mkdir(parents=True)
+                (app/'assets').mkdir(parents=True)
+                manifest = dict(models={}, llama_cpu_runtime=dict(revision='current-cpu'),
+                                llama_runtime=dict(revision='current-gpu'))
+                (app/'assets/components.json').write_text(json.dumps(manifest))
+                required = ['ggml-base.dll', 'ggml-cpu-x64.dll', 'ggml.dll', 'llama.dll',
+                            'llama-common.dll', 'llama-server-impl.dll', 'libomp.dll']
+                for runtime, saved_revision, gpu, executable in [
+                        (managed, revision, own_gpu, own_executable),
+                        (external, 'current-gpu' if external_gpu else 'current-cpu', external_gpu, True)]:
+                    folder = runtime/'llama'
+                    folder.mkdir(parents=True)
+                    for name in required + (['ggml-cuda.dll', 'cublas64_13.dll', 'cublasLt64_13.dll'] if gpu else []) + (['llama-server.exe'] if executable else []):
+                        (folder/name).write_bytes(b'fixture; never executed')
+                    (folder/'verified.json').write_text(json.dumps(dict(revision=saved_revision, gpu=gpu)))
+                captured = []
+                def capture(engine, app, store, components):
+                    captured.append(components)
+                request = dict(operation='generate', work_dir=str(job), library_root=str(library),
+                               components_root=str(external), settings=dict(device='cuda' if want_gpu else 'cpu', tts_model='system'), tasks=[])
+                with patch.object(worker, 'APP', app), patch.object(Engine, '__init__', capture), patch.object(Engine, 'unload'), patch.object(worker, 'emit'):
+                    worker.run(request)
+                    catalog = captured[0]
+                    self.assertTrue(catalog.llama_ready(gpu=want_gpu))
+                    own_ready = revision == 'current-cpu' and own_executable and not want_gpu
+                    expected = (managed if own_ready else external)/'llama/llama-server.exe'
+                    self.assertEqual(catalog.llama_executable(), expected)
+
+    def test_encouragement_is_text_only_and_never_publishes_phrase_or_audio(self):
+        from kavychka_local.engine import Engine
+        with tempfile.TemporaryDirectory(dir=ROOT / 'work') as directory:
+            library=Path(directory); job=library/'jobs/job-support';job.mkdir(parents=True)
+            events=[]; texts=[]
+            def text(engine, category, event, progress, **options):
+                self.assertEqual(category,'support')
+                self.assertIs(options['style_retries'],False)
+                self.assertEqual(engine.store.settings()['tts_model'],'system')
+                value='Небольшой шаг сегодня тоже считается. Вариант '+str(len(texts)+1)
+                texts.append(value)
+                return value
+            request=dict(operation='support',work_dir=str(job),library_root=str(library),components_root=str(library/'components'),settings=dict(tts_model='system',text_enabled=True),day='2026-10-28')
+            with patch.object(Engine,'text',text),patch.object(Engine,'speech',side_effect=AssertionError('Support must not synthesize audio')),patch.object(Engine,'direction',side_effect=AssertionError('Support has no acting stage')),patch.object(worker,'emit',side_effect=lambda kind,**data:events.append((kind,data))):
+                worker.run(request)
+            self.assertEqual(events[-1],('result',dict(texts=texts)))
+            self.assertEqual(len(texts),4)
+            self.assertTrue(all(kind in ('stage','result') for kind,_ in events))
+            self.assertEqual(list((job/'audio').iterdir()),[])
+
+    def test_retained_environment_top_level_link_is_rejected_without_reading_its_contents(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory(dir=ROOT/'work') as directory:
+            root=Path(directory);retained=root/'runtime-unverified-123-456';retained.mkdir()
+            original=Path.lstat
+            def info(path,*args,**kwargs):
+                value=original(path,*args,**kwargs)
+                return SimpleNamespace(st_mode=value.st_mode,st_file_attributes=0x400) if path==retained else value
+            with patch.object(Path,'lstat',info):
+                with self.assertRaisesRegex(ValueError,'contains a link'):worker.verify_managed_tree(root)
+
+    def test_one_install_completes_cosy_dependencies_reuses_weights_and_reports_phases(self):
+        import hashlib,json
+        from kavychka_local import downloads
+        with tempfile.TemporaryDirectory(dir=ROOT/'work') as directory:
+            base=Path(directory); app=base/'app';library=base/'library';job=library/'jobs/job-test';managed=library/'components'
+            (app/'assets').mkdir(parents=True);job.mkdir(parents=True);(managed/'runtime').mkdir(parents=True)
+            good=b'checked weights';weights=managed/'models/tts-cosyvoice3/weights';weights.parent.mkdir(parents=True);weights.write_bytes(good)
+            model=dict(format='cosyvoice3',files=[dict(path='weights',size=len(good),sha256=hashlib.sha256(good).hexdigest())])
+            manifest=dict(models={'tts-cosyvoice3':model},runtime_profile='fixture-v1',runtime_versions={'torch':'2.14.1'},wheels={'cpu':[]},cosy_runtime={'revision':'fixture-cosy','files':[]})
+            (app/'assets/components.json').write_text(json.dumps(manifest))
+            python=managed/'runtime/python.exe';python.write_bytes(b'owned Python fixture')
+            calls=[];events=[]
+            def write(relative):
+                p=managed/relative;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('fixture',encoding='utf-8')
+            def install(component,ident,event,progress):
+                calls.append(ident);progress('Collecting an internal-pip-package==1.2.3')
+                if ident=='runtime':
+                    for name in ['torch/__init__.py','qwen_tts/__init__.py','transformers/__init__.py','soundfile.py','tzdata/__init__.py']:write('runtime/Lib/site-packages/'+name)
+                    (managed/'runtime-ok.json').write_text(json.dumps(dict(profile='fixture-v1',gpu=False,torch='2.14.1+cpu',versions={'torch':'2.14.1+cpu'})))
+                elif ident=='cosy-runtime':
+                    for name in ['site/numpy/__init__.py','Whisper/whisper/__init__.py','CosyVoice/cosyvoice/cli/cosyvoice.py','Matcha-TTS/matcha/utils/audio.py']:write('cosy/'+name)
+                    (managed/'cosy/verified.json').write_text(json.dumps(dict(profile='fixture-v1',revision='fixture-cosy')))
+                else:self.fail('Validated model weights must not be downloaded')
+            request=dict(work_dir=str(job),library_root=str(library),components_root=str(base/'legacy'),settings=dict(device='cpu'),operation='install',ids=['tts-cosyvoice3'])
+            with patch.object(worker,'APP',app),patch.object(worker.sys,'executable',str(python)),patch.object(downloads.Components,'install',install),patch.object(worker,'emit',side_effect=lambda kind,**data:events.append((kind,data))):
+                worker.run(request.copy())
+                self.assertEqual(calls,['runtime','cosy-runtime'])
+                self.assertTrue(events[-1][1]['ready'])
+                self.assertEqual(events[-1][1]['downloaded_models'],[])
+                stages=[data['stage'] for kind,data in events if kind=='stage']
+                self.assertEqual(stages,['install_check','install_runtime','install_voice_engine','install_verify','install_ready'])
+                for kind,data in events:
+                    if kind=='progress' and data['detail'].startswith('Collecting'):
+                        self.assertNotIn('internal-pip-package',data['message']);self.assertIsNone(data['percent'])
+                retained=managed/'runtime-unverified-123-456';retained.mkdir()
+                (retained/'preserved-evidence').write_bytes(b'Old environment; never inspect or alter')
+                original_iterdir=Path.iterdir
+                def active_only(path):
+                    if path==retained:self.fail('Retained environment must not be traversed')
+                    return original_iterdir(path)
+                events.clear();calls.clear()
+                with patch.object(Path,'iterdir',active_only):worker.run(request.copy())
+                self.assertEqual(calls,[])
+                self.assertTrue(events[-1][1]['ready'])
+                self.assertEqual((retained/'preserved-evidence').read_bytes(),b'Old environment; never inspect or alter')
+                # A marker without its packages must not report a ready environment.
+                (managed/'runtime/Lib/site-packages/torch/__init__.py').unlink()
+                worker.run(request.copy());self.assertEqual(calls,['runtime'])
+                self.assertEqual(weights.read_bytes(),good)
+
+    def test_install_does_not_claim_success_if_dependency_is_still_missing(self):
+        import hashlib,json
+        from kavychka_local import downloads
+        with tempfile.TemporaryDirectory(dir=ROOT/'work') as directory:
+            base=Path(directory);app=base/'app';library=base/'library';job=library/'jobs/job-test'
+            (app/'assets').mkdir(parents=True);job.mkdir(parents=True)
+            good=b'weights';p=library/'components/models/text-fixture/weights';p.parent.mkdir(parents=True);p.write_bytes(good)
+            model=dict(format='gguf',files=[dict(path='weights',size=len(good),sha256=hashlib.sha256(good).hexdigest())])
+            (app/'assets/components.json').write_text(json.dumps(dict(models={'text-fixture':model},llama_cpu_runtime={'files':[]})))
+            request=dict(work_dir=str(job),library_root=str(library),components_root=str(base/'legacy'),settings=dict(device='cpu'),operation='install',ids=['text-fixture'])
+            events=[]
+            with patch.object(worker,'APP',app),patch.object(downloads.Components,'install'),patch.object(downloads.Components,'llama_ready',return_value=False),patch.object(worker,'emit',side_effect=lambda kind,**data:events.append((kind,data))):
+                with self.assertRaisesRegex(ValueError,'Подготовка не завершена'):worker.run(request)
+            self.assertFalse(any(kind=='result' for kind,data in events))
+
     def test_explicit_install_verifies_hash_and_repairs_into_managed_storage_only(self):
         import hashlib
         from kavychka_local import downloads

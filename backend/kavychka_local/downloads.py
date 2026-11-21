@@ -22,6 +22,17 @@ def checkpoint(event):
     if event.is_set():
         raise Cancelled("Отменено пользователем; загрузку можно продолжить")
 
+def resolved_path(path):
+    """One identity for ordinary and extended Win32/UNC spellings."""
+    value = str(Path(path).resolve())
+    if os.name == "nt":
+        if value.startswith("\\\\?\\UNC\\"):
+            value = "\\\\" + value[8:]
+        elif value.startswith("\\\\?\\"):
+            value = value[4:]
+    return Path(value)
+
+
 def digest(path):
     value = hashlib.sha256()
     with Path(path).open("rb") as source:
@@ -125,11 +136,41 @@ class Components:
     def runtime_wheels(self, gpu):
         return self.manifest["wheels"][self.manifest.get("cuda_wheel_set", "cu128") if gpu else "cpu"]
 
+    def runtime_ready(self, gpu=None):
+        """Readiness of a qualified on-disk environment, not this process' imports."""
+        try:
+            marker = json.loads((self.root / "runtime-ok.json").read_text(encoding="utf-8"))
+            if not isinstance(marker, dict) or ("gpu" in marker and not isinstance(marker["gpu"], bool)):
+                return False
+            profile = self.manifest.get("runtime_profile")
+            if profile and marker.get("profile") != profile:
+                return False
+            if gpu is True and not (marker.get("gpu") is True or "+cu" in marker.get("torch", "")):
+                return False
+            versions = marker.get("versions")
+            if versions is not None and (not isinstance(versions, dict) or any(
+                    str(versions.get(name, "")).split("+")[0] != expected
+                    for name, expected in self.manifest.get("runtime_versions", {}).items())):
+                return False
+            packages = self.root / "runtime/Lib/site-packages"
+            return ((self.root / "runtime/python.exe").is_file() and all(
+                (packages / name).is_file() for name in ("torch/__init__.py", "qwen_tts/__init__.py",
+                    "transformers/__init__.py", "soundfile.py", "tzdata/__init__.py")))
+        except (OSError, ValueError, TypeError):
+            return False
+
     def runtime_python(self):
         self.check_package_path(self.root / "runtime")
-        python = Path(os.path.realpath(sys.executable))
-        if python != (self.root / "runtime/python.exe").resolve():
-            raise ValueError("Install or repair must run in the managed Python; original environment retained")
+        # Windows may report the same interpreter with or without \\?\.
+        python = resolved_path(sys.executable)
+        if python != resolved_path(self.root / "runtime/python.exe"):
+            raise ValueError(
+                "Подготовка остановлена: компоненты запущены вне встроенной среды Python. "
+                "Перезапусти Кавычку и повтори «Подготовить модели». "
+                "Если ошибка повторится, сохрани журнал из «Подробнее». "
+                "Существующие модели и среда сохранены. / "
+                "Setup stopped: Python is outside the managed environment. Restart Kavychka "
+                "and retry Set up models. If it fails again, save the log from Details; original environment retained")
         return str(python)
 
     def path(self, key):

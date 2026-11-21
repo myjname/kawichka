@@ -29,6 +29,7 @@ pub enum Command {
     Presented(String),
     Breakfast,
     Stretch,
+    CancelStretch,
     Pause(i32),
     Review,
     Silence,
@@ -44,8 +45,13 @@ pub enum Command {
     GenerateBatchOnBattery,
     RegenerateSpeech(Option<String>),
     SelectPhrase(String, bool),
+    HidePhrase(String),
+    LibrarySelection(crate::library_actions::Selection, String),
     PlayPhrase(String),
-    InstallModels,
+    PrepareModels(
+        Box<kavychka_core::generation::Generation>,
+        Box<kavychka_core::generation::Generation>,
+    ),
     RepairEnvironment,
     RefreshLibrary,
     LibraryPage(bool, usize),
@@ -62,7 +68,7 @@ pub enum Command {
     },
     Stop,
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeView {
     #[serde(default)]
     pub presentation_requests: u64,
@@ -78,6 +84,8 @@ pub struct RuntimeView {
     pub next: String,
     pub status: String,
     pub breakfast_done: bool,
+    #[serde(default)]
+    pub exercise_active: bool,
     pub pet_position: Option<(i32, i32)>,
     pub pet_permitted: bool,
     pub animation: bool,
@@ -151,7 +159,7 @@ impl Backend {
                     chrono::Utc::now().format("%Y%m%d-%H%M%S")
                 ));
                 let _ = ui.upgrade_in_event_loop(move |ui| {
-                    ui.set_profile_export_path(default_export.to_string_lossy().as_ref().into())
+                    ui.set_profile_export_path(crate::display_path::display(&default_export).into())
                 });
                 let prefs = store.load().map_err(|e| e.to_string())?;
                 let runtime = !matches!(mode, Mode::Settings);
@@ -212,8 +220,10 @@ impl Backend {
                     crate::p4_crash::hit("recovery_after_checkpoint");
                 }
                 publish(&ui, Ok(engine.prefs.clone()), false);
-                let mut stored = serde_json::to_string(&engine.state).map_err(|e| e.to_string())?;
-                let mut last_view = String::new();
+                // Last successfully committed checkpoint. Comparing typed data
+                // avoids formatting the full reminder history on every idle tick.
+                let mut stored_state = engine.state.clone();
+                let mut last_view: Option<RuntimeView> = None;
                 let mut revision = 0;
                 let mut presentation_requests = 0u64;
                 let mut audio_stop_requests = 0u64;
@@ -281,11 +291,10 @@ impl Backend {
                             store
                                 .save_runtime(&engine.prefs, &engine.state)
                                 .map_err(|e| e.to_string())?;
-                            stored =
-                                serde_json::to_string(&engine.state).map_err(|e| e.to_string())?;
+                            stored_state = engine.state.clone();
                             library = Manager::new(&mut store, None, stop.clone())?;
                             library.cancellation = user_cancellation.clone();
-                            last_view.clear();
+                            last_view = None;
                             publish(&ui, Ok(engine.prefs.clone()), false);
                             let _ = ui.upgrade_in_event_loop(|ui| {
                                 ui.set_profile_operation_index(1);
@@ -305,6 +314,8 @@ impl Backend {
                     let runtime = runtime && (controlled || candidate.prefs.desktop.setup_complete);
                     let mut effect = Effect::default();
                     let mut preferences_reply = None;
+                    let mut prepare_models_reply = None;
+                    let mut character_import = false;
                     for event in audio_events_rx.try_iter() {
                         if let Err(error) = journal_audio(&mut store, event) {
                             if let Some(output) = &output {
@@ -358,6 +369,7 @@ impl Backend {
                         }
                     }
                     if let Some(command) = command {
+                        let auto_import_requested = matches!(&command,Command::Preset(action) if matches!(action.as_ref(),crate::presets_ui::Action::ImportAndApply(_)));
                         let library_command = matches!(
                             &command,
                             Command::PrepareDay
@@ -365,8 +377,10 @@ impl Backend {
                                 | Command::GenerateBatchOnBattery
                                 | Command::RegenerateSpeech(_)
                                 | Command::SelectPhrase(..)
+                                | Command::HidePhrase(_)
+                                | Command::LibrarySelection(..)
                                 | Command::PlayPhrase(_)
-                                | Command::InstallModels
+                                | Command::PrepareModels(..)
                                 | Command::RepairEnvironment
                                 | Command::ExportLibrary
                                 | Command::ClearRecordings
@@ -474,22 +488,28 @@ impl Backend {
                                     }
                                 }
                                 Command::Preset(action) => {
+                                    let apply_import = matches!(
+                                        action.as_ref(),
+                                        crate::presets_ui::Action::ImportAndApply(_)
+                                    );
+                                    let edited_description = match action.as_ref() {
+                                        crate::presets_ui::Action::Save(id, preset)
+                                            if *id == candidate.prefs.desktop.character_preset =>
+                                        {
+                                            preset.content.description().map(str::to_owned)
+                                        }
+                                        _ => None,
+                                    };
                                     library.preset_action(&store, &candidate.prefs, *action)?;
+                                    if apply_import {
+                                        library.apply_imported(&store, &mut candidate.prefs)?;
+                                        character_import = true;
+                                    }
                                     candidate.prefs.desktop.visual_revision =
                                         candidate.prefs.desktop.visual_revision.wrapping_add(1);
-                                    if !candidate.prefs.desktop.character_preset.is_empty() {
-                                        let p = kavychka_storage::presets::read(
-                                            &store.root,
-                                            &candidate.prefs.desktop.character_preset,
-                                        )
-                                        .map_err(|e| e.to_string())?;
-                                        if let kavychka_storage::presets::Content::Character {
-                                            description,
-                                        } = p.content
-                                        {
-                                            candidate.prefs.generation.character_description =
-                                                description;
-                                        }
+                                    if let Some(description) = edited_description {
+                                        candidate.prefs.generation.character_description =
+                                            description;
                                     }
                                 }
                                 Command::Confirm(key) => {
@@ -507,6 +527,7 @@ impl Backend {
                                     }
                                 }
                                 Command::Breakfast => candidate.breakfast(clock)?,
+                                Command::CancelStretch => effect = candidate.cancel_stretch(clock),
                                 Command::Stretch => {
                                     if !env.session_blocked() {
                                         effect = candidate.manual_stretch(clock);
@@ -552,7 +573,7 @@ impl Backend {
                                 }
                                 Command::PrepareDay => {
                                     check_generation(&candidate, clock, env, false)?;
-                                    library.resume_preparation();
+                                    library.resume_preparation(clock);
                                     library.generate(&mut store, &candidate.prefs, clock, true)?;
                                 }
                                 Command::GenerateBatch => {
@@ -576,6 +597,93 @@ impl Backend {
                                 Command::SelectPhrase(id, keep) => {
                                     store.select_phrase(&id, keep).map_err(|e| e.to_string())?;
                                     library.invalidate();
+                                }
+                                Command::LibrarySelection(selection, action) => {
+                                    selection.validate(&clock.date.to_string(), &action)?;
+                                    if action != "all" && (library.running() || library.waiting()) {
+                                        return Err(
+                                            "Дождись текущей задачи / Wait for the current task"
+                                                .into(),
+                                        );
+                                    }
+                                    let available = if selection.group == "support" {
+                                        crate::support::load(
+                                            &store,
+                                            &candidate.prefs,
+                                            &selection.day,
+                                        )?
+                                        .texts
+                                    } else {
+                                        store
+                                            .phrases()
+                                            .map_err(|e| e.to_string())?
+                                            .into_iter()
+                                            .filter(|r| {
+                                                !r.deleted
+                                                    && ((r.day.as_deref()
+                                                        == Some(selection.day.as_str()))
+                                                        == (selection.group == "current"))
+                                            })
+                                            .map(|r| r.id)
+                                            .collect()
+                                    };
+                                    if action == "all" {
+                                        let _ = ui.upgrade_in_event_loop(move |ui| {
+                                            crate::library_actions::accept_all(
+                                                &ui, &selection, available,
+                                            )
+                                        });
+                                    } else {
+                                        if selection.ids.iter().any(|id| !available.contains(id)) {
+                                            return Err("Список изменился. Выбери фразы заново / List changed; select again".into());
+                                        }
+                                        let ids = selection.ids.iter().cloned().collect::<Vec<_>>();
+                                        match action.as_str() {
+                                            "delete" if selection.group == "support" => {
+                                                library.remove_support(&store, &ids)?
+                                            }
+                                            "delete" => {
+                                                store
+                                                    .change_phrases(&ids, None)
+                                                    .map_err(|e| e.to_string())?;
+                                                library.status = format!(
+                                                    "Удалено из списка: {}. Тексты сохранены для защиты от повторов / Removed; anti-repeat text retained",
+                                                    ids.len()
+                                                );
+                                            }
+                                            "keep" | "exclude" => {
+                                                store
+                                                    .change_phrases(&ids, Some(action == "keep"))
+                                                    .map_err(|e| e.to_string())?;
+                                                library.status = format!(
+                                                    "Обработано фраз / Phrases updated: {}",
+                                                    ids.len()
+                                                );
+                                            }
+                                            "speech" => {
+                                                check_generation(&candidate, clock, env, false)?;
+                                                library.speech_selected(
+                                                    &mut store,
+                                                    &candidate.prefs,
+                                                    clock,
+                                                    Some(&ids),
+                                                )?;
+                                            }
+                                            "export" => library.export_selected(
+                                                &store,
+                                                &candidate.prefs,
+                                                clock,
+                                                Some(&ids),
+                                            )?,
+                                            _ => return Err("Unknown library action".into()),
+                                        }
+                                        library.invalidate();
+                                        let _ = ui.upgrade_in_event_loop(move |ui| {
+                                            crate::library_actions::clear_if_unchanged(
+                                                &ui, &selection,
+                                            )
+                                        });
+                                    }
                                 }
                                 Command::PlayPhrase(id) => {
                                     let row = store.phrase(&id).map_err(|e| e.to_string())?;
@@ -603,13 +711,33 @@ impl Backend {
                                         output.stop();
                                     }
                                 }
-                                Command::InstallModels => {
-                                    library.install(&store, &candidate.prefs, clock)?
+                                Command::PrepareModels(desired, base) => {
+                                    library.can_install()?;
+                                    let prefs =
+                                        merge_model_setup(&candidate.prefs, &base, &desired)?;
+                                    let changed = serde_json::to_value(&prefs.generation)
+                                        .map_err(|e| e.to_string())?
+                                        != serde_json::to_value(&candidate.prefs.generation)
+                                            .map_err(|e| e.to_string())?;
+                                    candidate.preferences(prefs, clock)?;
+                                    prepare_models_reply = Some((desired, base, changed));
+                                    library.invalidate();
                                 }
                                 Command::RepairEnvironment => {
                                     library.repair_environment(&store, &candidate.prefs, clock)?
                                 }
                                 Command::RefreshLibrary => library.invalidate(),
+                                Command::HidePhrase(id) => {
+                                    if library.running() || library.waiting() {
+                                        return Err(
+                                            "Дождись текущей задачи / Wait for the current task"
+                                                .into(),
+                                        );
+                                    }
+                                    store.hide_phrase(&id).map_err(|e| e.to_string())?;
+                                    library.status="Фраза удалена из списка. Текст сохранён для защиты от повторов / Phrase removed; text retained for anti-repeat".into();
+                                    library.invalidate();
+                                }
                                 Command::LibraryPage(today, page) => library.browse(today, page),
                                 Command::ArchivePage(page) => library.browse_archive(page),
                                 Command::ConfirmArchived(key) => {
@@ -658,6 +786,9 @@ impl Backend {
                             Ok(())
                         })();
                         if let Err(error) = result {
+                            if auto_import_requested {
+                                library.import_aborted();
+                            }
                             if library_command {
                                 library.status = error;
                                 library.invalidate();
@@ -724,12 +855,8 @@ impl Backend {
                     {
                         candidate.state.checkpoint_utc = Some(clock.utc);
                     }
-                    let serialized =
-                        serde_json::to_string(&candidate.state).map_err(|e| e.to_string())?;
-                    let prefs_changed = serde_json::to_value(&candidate.prefs)
-                        .map_err(|e| e.to_string())?
-                        != serde_json::to_value(&engine.prefs).map_err(|e| e.to_string())?;
-                    if serialized != stored
+                    let prefs_changed = candidate.prefs != engine.prefs;
+                    if candidate.state != stored_state
                         || !candidate.archived_pending.is_empty()
                         || prefs_changed
                         || preferences_reply.is_some_and(|saved| saved)
@@ -755,13 +882,19 @@ impl Backend {
                             store.save(&candidate.prefs)
                         };
                         if let Err(error) = result {
+                            if character_import {
+                                library.import_aborted();
+                                library.status = format!(
+                                    "Не удалось применить персонажа / Could not apply character: {error}"
+                                );
+                            }
                             if let Some(output) = &output {
                                 output.stop();
                             }
                             publish(&ui, Err(error.to_string()), false);
                             continue;
                         }
-                        stored = serialized;
+                        stored_state = candidate.state.clone();
                         if !candidate.archived_pending.is_empty() {
                             library.invalidate();
                             candidate.archived_pending.clear();
@@ -779,6 +912,24 @@ impl Backend {
                             format!("Автозапуск не настроен / Startup integration failed: {error}");
                     }
                     engine = candidate;
+                    if character_import {
+                        library.import_committed();
+                        library.settings_changed(clock);
+                    }
+                    if let Some((desired, base, changed)) = prepare_models_reply {
+                        // The settings transaction above must succeed before any
+                        // cancellation, environment installation or download.
+                        if changed {
+                            library.settings_changed(clock);
+                        }
+                        if let Err(error) = library.install(&store, &engine.prefs, clock) {
+                            library.status = error;
+                            library.invalidate();
+                        }
+                        let _ = ui.upgrade_in_event_loop(move |ui| {
+                            crate::models_ui::setup_saved(&ui, &desired, &base);
+                        });
+                    }
                     if effect.announce.is_some() {
                         presentation_requests = presentation_requests.saturating_add(1);
                     }
@@ -892,12 +1043,14 @@ impl Backend {
                         }
                         view.presentation_requests = presentation_requests;
                         view.audio_stop_requests = audio_stop_requests;
-                        // Ignore revision for change detection: an idle service posts no UI work.
-                        let json = serde_json::to_string(&view).map_err(|e| e.to_string())?;
-                        if json != last_view {
-                            last_view = json;
+                        // Revision is transport bookkeeping, not a UI change.
+                        // Serialize only changed views, not every idle tick.
+                        view.revision = 0;
+                        if last_view.as_ref() != Some(&view) {
                             view.revision = revision;
                             let json = serde_json::to_string(&view).map_err(|e| e.to_string())?;
+                            view.revision = 0;
+                            last_view = Some(view);
                             let _ = ui.upgrade_in_event_loop(move |ui| {
                                 ui.invoke_runtime_update(json.into())
                             });
@@ -910,6 +1063,7 @@ impl Backend {
                 }
                 drop(output);
                 for event in audio_events_rx.try_iter() {
+                    library.invalidate();
                     journal_audio(&mut store, event)?;
                 }
                 drop(monitor);
@@ -940,6 +1094,43 @@ impl Drop for Backend {
             let _ = join.join();
         }
     }
+}
+fn merge_model_setup(
+    current: &Preferences,
+    base: &kavychka_core::generation::Generation,
+    desired: &kavychka_core::generation::Generation,
+) -> Result<Preferences, String> {
+    let current_value = serde_json::to_value(&current.generation).map_err(|e| e.to_string())?;
+    let base_value = serde_json::to_value(base).map_err(|e| e.to_string())?;
+    let desired_value = serde_json::to_value(desired).map_err(|e| e.to_string())?;
+    let mut filtered = base_value.clone();
+    for key in [
+        "device",
+        "text_model",
+        "runtime_text_model",
+        "tts_model",
+        "voice_profile",
+        "text_enabled",
+        "runtime",
+        "auto_daily",
+        "daily_auto_keep",
+        "ac_only",
+        "model_paths",
+        "runtime_wait_seconds",
+    ] {
+        if base_value[key] != desired_value[key]
+            && current_value[key] != base_value[key]
+            && current_value[key] != desired_value[key]
+        {
+            return Err("Выбор моделей уже изменился. Обнови страницу и выбери снова / Model choices changed; reload and choose again".into());
+        }
+        filtered[key] = desired_value[key].clone();
+    }
+    let mut baseline = current.clone();
+    baseline.generation = base.clone();
+    let mut wanted = baseline.clone();
+    wanted.generation = serde_json::from_value(filtered).map_err(|e| e.to_string())?;
+    kavychka_core::preferences::merge(current, &baseline, &wanted)
 }
 fn journal_audio(store: &mut Sandbox, event: audio::PlaybackEvent) -> Result<(), String> {
     if let Some(notice) = event.notice {
@@ -1077,6 +1268,7 @@ fn view(
         next,
         status,
         breakfast_done: engine.state.breakfast_dates.contains(&clock.date),
+        exercise_active: engine.exercise_active(),
         pet_position: engine.state.pet_position,
         pet_permitted: !env.session_blocked()
             && !env.notifications_blocked(engine.prefs.reminders.allow_during_dnd)
@@ -1108,6 +1300,29 @@ pub fn category(category: kavychka_core::reminders::Category, en: bool) -> &'sta
 #[cfg(test)]
 mod p4_policy_tests {
     use super::*;
+    #[test]
+    fn one_click_model_setup_preserves_unrelated_settings_and_rejects_stale_choices() {
+        let base = Preferences::default();
+        let mut current = base.clone();
+        current.user_name = "Concurrent user name".into();
+        current.generation.character_description = "Concurrent character".into();
+        let mut desired = base.generation.clone();
+        desired.text_enabled = true;
+        desired.tts_model = "tts-cosyvoice3".into();
+        desired.voice_profile = "voicefixture".into();
+        desired.character_description = "Unrelated UI draft".into();
+        let merged = merge_model_setup(&current, &base.generation, &desired).unwrap();
+        assert!(merged.generation.text_enabled);
+        assert_eq!(merged.generation.tts_model, "tts-cosyvoice3");
+        assert_eq!(merged.generation.voice_profile, "voicefixture");
+        assert_eq!(merged.user_name, "Concurrent user name");
+        assert_eq!(
+            merged.generation.character_description,
+            "Concurrent character"
+        );
+        current.generation.tts_model = "tts-1.7b".into();
+        assert!(merge_model_setup(&current, &base.generation, &desired).is_err());
+    }
     #[test]
     fn a_manual_battery_exception_never_bypasses_pause_or_fullscreen_or_changes_the_preference() {
         let utc = "2026-10-23T12:00:00Z"

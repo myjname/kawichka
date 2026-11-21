@@ -15,6 +15,11 @@ from kavychka_local.downloads import BUILD_TOOLS, SITE_OWNER, Cancelled, Compone
 
 class InstallerTests(unittest.TestCase):
     def setUp(self):
+        # Production installs run in a fresh worker. Earlier attention tests can
+        # load Torch into this unittest process; isolate that precondition here.
+        modules = patch.dict(sys.modules)
+        modules.start(); self.addCleanup(modules.stop)
+        sys.modules.pop("torch", None)
         self.temp = tempfile.TemporaryDirectory(dir=ROOT / "work")
         self.root = Path(self.temp.name)
         self.components = Components(ROOT, self.root, None)
@@ -25,6 +30,15 @@ class InstallerTests(unittest.TestCase):
         for fixture in (patch.object(self.components, "runtime_python", return_value=sys.executable),
                         patch("kavychka_local.qwen_package.build", return_value=stub)):
             fixture.start(); self.addCleanup(fixture.stop)
+
+    def test_loaded_torch_refuses_install_before_touching_the_environment(self):
+        marker = self.root / "runtime-ok.json"
+        marker.write_text("retained marker")
+        with patch.dict(sys.modules, {"torch": object()}), patch.object(self.components, "run_install") as run:
+            with self.assertRaisesRegex(ValueError, "перезапустите"):
+                self.components.install_runtime(self.event, self.progress, False)
+        run.assert_not_called()
+        self.assertEqual(marker.read_text(), "retained marker")
 
     def tearDown(self):
         self.temp.cleanup()
@@ -54,6 +68,21 @@ class InstallerTests(unittest.TestCase):
     def test_foreign_python_is_refused_without_modifying_an_environment(self):
         with self.assertRaisesRegex(ValueError, "original environment retained"):
             Components.runtime_python(self.components)
+
+    @unittest.skipUnless(os.name == "nt", "Windows extended paths")
+    def test_managed_python_accepts_extended_and_plain_paths_in_both_directions(self):
+        managed = self.root / "Среда Python"
+        runtime = managed / "runtime"
+        runtime.mkdir(parents=True)
+        actual = runtime / "python.exe"
+        actual.write_bytes(b"interpreter identity fixture")
+        extended = "\\\\?\\" + str(actual)
+        for executable, root in ((extended, managed),
+                                 (str(actual), Path("\\\\?\\" + str(managed)))):
+            with self.subTest(executable=executable), patch.object(sys, "executable", executable):
+                component = Components(ROOT, root, None)
+                self.assertEqual(Components.runtime_python(component), str(actual.resolve()))
+                self.assertEqual(actual.read_bytes(), b"interpreter identity fixture")
 
     def test_mismatched_derived_wheel_starts_no_installation(self):
         self.components.manifest["qwen_inference"]["derived_sha256"] = "0" * 64
