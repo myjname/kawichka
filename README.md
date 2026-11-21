@@ -155,7 +155,7 @@ CosyVoice генерирует речь с командой подачи чер�
 
 - Сборка и запуск из исходников: `next/Start-preview.bat` (подробнее в [next/README.md](next/README.md)).
 - Тесты Rust: `cargo test --manifest-path next/Cargo.toml --workspace --locked`.
-- Тесты Python: `python -m pip install -r tests/requirements.txt`, затем `python -B -m unittest discover -s tests -v`.
+- Тесты Python: установить `tests/requirements.txt`, CPU Torch `2.14.1` из `https://download.pytorch.org/whl/cpu` и `transformers==5.10.0`, затем выполнить `python -B -m unittest discover -s tests -v`. Точные команды установки приведены в `.github/workflows/next-windows.yml`; веса моделей и CUDA для этих тестов не нужны.
 - Проверка публичных исходников: `python -B scripts/check-public.py`.
 
 Проверка v2 с установленными Gemma и CosyVoice:
