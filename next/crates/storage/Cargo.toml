@@ -6,7 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-zip = { version = "=0.6.6", default-features = false, features = ["deflate"] }
+zip = { version = "=9.7.0", default-features = false, features = ["deflate"] }
 claxon = "=0.4.3"
 kavychka-core = { path = "../core" }
 serde.workspace = true
