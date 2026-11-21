@@ -1,6 +1,6 @@
 # Lightweight test helpers. Full-suite CI installs CPU Torch/Transformers separately.
 # No model weights or CUDA are needed.
-imageio-ffmpeg==0.6.0
+imageio-ffmpeg==0.8.1
 cffi==2.1.1
 numpy==2.5.4
 pillow==13.0.0
