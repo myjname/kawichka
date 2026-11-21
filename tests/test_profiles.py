@@ -115,6 +115,15 @@ class ProfileBoundaryTests(unittest.TestCase):
                 (root/'folder.kavychka').mkdir(exist_ok=True)
                 with self.subTest(target=str(target)),self.assertRaises(ValueError):profiles.export(result['id'],'character',target)
             self.assertEqual(victim.read_text(),'keep')
+            # A pre-created "<target>.part" link must not redirect the export write.
+            planted=root/'planted.kavychka';link=root/'planted.kavychka.part'
+            try:link.symlink_to(victim)
+            except (OSError,NotImplementedError):link=None
+            profiles.export(result['id'],'character',planted)
+            self.assertEqual(victim.read_text(),'keep')
+            with zipfile.ZipFile(planted) as archive:self.assertIn('preset.json',archive.namelist())
+            if link is not None:self.assertTrue(link.is_symlink())
+            self.assertEqual([p.name for p in root.glob('.kavychka-export-*')],[])
 
     def test_plain_description_accepts_4000_utf8_characters_but_bounds_large_input(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'work') as temp:

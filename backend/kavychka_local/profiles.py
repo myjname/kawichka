@@ -279,9 +279,12 @@ class Profiles:
             names += [ref["file"] for ref in item["references"]]
         elif kind == "visual":
             names += [item["file"]]
-        partial = target.with_name(target.name + ".part")
+        # A fresh, exclusively created temporary name: a pre-made "<name>.part" (or a
+        # link with that name) can never redirect the write to another file.
+        handle, name_ = tempfile.mkstemp(prefix=".kavychka-export-", suffix=".part", dir=target.parent)
+        partial = Path(name_)
         try:
-            with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED) as archive:
+            with os.fdopen(handle, "wb") as raw, zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as archive:
                 archive.writestr("preset.json", json.dumps(item, ensure_ascii=False, indent=2))
                 for name in names[1:]:
                     archive.write(inside(folder, name), name)
