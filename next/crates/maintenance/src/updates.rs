@@ -16,9 +16,12 @@ pub const MANIFEST: &str = "update-manifest.json";
 pub const SIGNATURE: &str = "update-manifest.json.minisig";
 const MANIFEST_LIMIT: usize = 16 * 1024;
 /// Public minisign keys accepted for update manifests. The matching secret keys
-/// are kept offline by the maintainer, never on GitHub. A second (backup) key
-/// is added here so a lost primary key does not strand installed copies.
-pub const TRUSTED_KEYS: &[&str] = &["RWSzq3pkt4ilTDxJVrhBXoSffVBaB37ZDco2K95dhAA9n/4f1R8QSyTv"];
+/// are kept offline by the maintainer, never on GitHub. The second key is the
+/// backup, so a lost primary key does not strand installed copies.
+pub const TRUSTED_KEYS: &[&str] = &[
+    "RWSzq3pkt4ilTDxJVrhBXoSffVBaB37ZDco2K95dhAA9n/4f1R8QSyTv",
+    "RWTp+5F7TBhy0nep3ITxUi6tFr4ActtJEJZKic9HsV9TPVfGpxKzBEyX",
+];
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SignedManifest {
