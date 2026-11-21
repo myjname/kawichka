@@ -1,9 +1,10 @@
 name: Rust Next verification
 on:
   push:
+    branches: [main]
     tags: ['next-v*']
   pull_request:
-    paths: ['next/**', 'backend/**', 'assets/**', 'tests/test_*.py', 'scripts/check-p1-contract.py', 'docs/RUST-SLINT-P1-CONTRACT.md', '.github/workflows/next-windows.yml']
+    paths: ['next/**', 'backend/**', 'assets/**', 'tests/**', 'scripts/check-public.py', 'scripts/check-p1-contract.py', 'docs/RUST-SLINT-P1-CONTRACT.md', '.github/**']
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -45,7 +46,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
-      - name: Verify public sources and stateless worker
+      - name: Verify public sources and compatibility contract
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path work -Force | Out-Null
@@ -54,23 +55,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Source check failed' }
           python -B scripts/check-p1-contract.py
           if ($LASTEXITCODE -ne 0) { throw 'P1 contract check failed' }
-          python -B -m unittest discover -s tests -p test_next_worker.py -v
-          if ($LASTEXITCODE -ne 0) { throw 'Worker check failed' }
-          foreach ($suite in @('test_character.py','test_diversity.py','test_profiles.py','test_next_release.py','test_installer.py','test_speech_qualification.py')) {
-            python -B -m unittest discover -s tests -p $suite -v
-            if ($LASTEXITCODE -ne 0) { throw "Regression failed: $suite" }
-          }
-      - name: Verify cached speech attention numerically (no model weights)
+      - name: Verify all Python backend regressions (no model weights)
         shell: pwsh
         run: |
+          python -B -m pip install --only-binary=:all: -r tests/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Python test helpers setup failed' }
           python -B -m pip install --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu torch==2.14.1
           if ($LASTEXITCODE -ne 0) { throw 'CPU Torch setup failed' }
-          python -B -m pip install --only-binary=:all: transformers==5.10.0 soundfile==0.14.0
+          python -B -m pip install --only-binary=:all: transformers==5.10.0
           if ($LASTEXITCODE -ne 0) { throw 'Transformers setup failed' }
-          python -B -m unittest discover -s tests -p test_cosy_attention.py -v
-          if ($LASTEXITCODE -ne 0) { throw 'Cached speech attention regression failed' }
-          python -B -m unittest discover -s tests -p test_speech_cache.py -v
-          if ($LASTEXITCODE -ne 0) { throw 'Speech cache regression failed' }
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Python backend regressions failed' }
       - name: Verify Rust workspace and package
         shell: pwsh
         env:
