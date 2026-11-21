@@ -3,6 +3,7 @@ name = "kavychka-design-preview"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 slint = { version = "=1.18.1", default-features = false, features = ["std", "renderer-software", "compat-1-2"] }
