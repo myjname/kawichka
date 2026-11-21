@@ -244,7 +244,12 @@ class Profiles:
             sf.write(target, samples.mean(axis=1), rate, format="FLAC")
 
     def export(self, ident, kind, target):
-        target = Path(target).resolve()
+        target = Path(target)
+        if not target.is_absolute() or target.suffix.casefold() != ".kavychka":
+            raise ValueError("Export needs an absolute path ending in .kavychka")
+        if target.is_symlink() or target.is_dir() or not target.parent.is_dir():
+            raise ValueError("Choose a regular file in an existing folder")
+        target = target.resolve()
         if target == self.root.resolve() or self.root.resolve() in target.parents:
             raise ValueError("Export outside the preset library")
         folder, item = self.get(ident, kind)

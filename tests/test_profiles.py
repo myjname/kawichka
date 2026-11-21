@@ -41,6 +41,11 @@ class ProfileBoundaryTests(unittest.TestCase):
             folder,item=profiles.get(result['id'],'character');self.assertEqual(item['description'],'Neutral description');self.assertNotIn('ignored_credential',item)
             exported=root/'out.kavychka';profiles.export(result['id'],'character',exported)
             with zipfile.ZipFile(exported) as archive:self.assertNotIn('synthetic-value',archive.read('preset.json').decode())
+            victim=root/'important.txt';victim.write_text('keep')
+            for target in [victim,root/'folder.kavychka',root/'missing'/'out.kavychka',Path('relative.kavychka')]:
+                (root/'folder.kavychka').mkdir(exist_ok=True)
+                with self.subTest(target=str(target)),self.assertRaises(ValueError):profiles.export(result['id'],'character',target)
+            self.assertEqual(victim.read_text(),'keep')
 
     def test_plain_description_accepts_4000_utf8_characters_but_bounds_large_input(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'work') as temp:
