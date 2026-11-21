@@ -2,6 +2,7 @@
 Builds update-manifest.json for a release and signs it with minisign.
 Run on your own computer (the secret key must never be on GitHub):
   ./next/tools/Sign-release.ps1 -Setup .\Kavychka-Next-Setup.exe -Version 0.1.31 -SecretKey $HOME\kavychka-keys\kavychka.key
+Use -PublicKey next\update-keys\kavychka-backup.pub when signing with the backup key.
 Then upload update-manifest.json and update-manifest.json.minisig to the release
 next to Kavychka-Next-Setup.exe. minisign asks for the key password.
 #>
@@ -9,6 +10,7 @@ param(
   [Parameter(Mandatory)][string]$Setup,
   [Parameter(Mandatory)][ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version,
   [Parameter(Mandatory)][string]$SecretKey,
+  [string]$PublicKey = (Join-Path $PSScriptRoot '..\update-keys\kavychka.pub'),
   [string]$OutputDirectory = '.'
 )
 $ErrorActionPreference = 'Stop'
@@ -27,4 +29,7 @@ $path = Join-Path $OutputDirectory 'update-manifest.json'
 [System.IO.File]::WriteAllText((Resolve-Path $OutputDirectory).Path + '\update-manifest.json', ($manifest | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding($false)))
 minisign -S -s $SecretKey -m $path -t "Kavychka Next $Version"
 if ($LASTEXITCODE -ne 0) { throw 'Signing failed' }
+# Check the result with the public key stored in the repository before uploading.
+minisign -V -p $PublicKey -m $path
+if ($LASTEXITCODE -ne 0) { throw 'The signature does not verify with the repository public key (wrong secret key?)' }
 Write-Host "Done. Upload $path and $path.minisig to the release."

@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_ROOTS = {".github", "assets", "backend", "docs", "scripts", "src", "tests", "next", "prototypes"}
 ALLOWED_TOP = {".gitignore", ".gitattributes", "README.md", "START.bat", "LICENSE"}
-ALLOWED_EXTENSIONS = {".cs", ".py", ".json", ".ps1", ".bat", ".md", ".yml", ".yaml", ".txt", ".rs", ".toml", ".lock", ".slint", ".svg", ".csproj", ".config", ".manifest"}
+ALLOWED_EXTENSIONS = {".cs", ".py", ".json", ".ps1", ".bat", ".md", ".yml", ".yaml", ".txt", ".rs", ".toml", ".lock", ".slint", ".svg", ".csproj", ".config", ".manifest", ".pub"}
 PRESET_SOURCE_MODULES = {
     "next/crates/storage/src/presets/packs.rs",
     "next/crates/storage/src/presets/packs_tests.rs",
