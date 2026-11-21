@@ -20,12 +20,29 @@ use std::{
     sync::mpsc::SyncSender,
     time::Duration,
 };
+#[path = "visual_load.rs"]
+mod visual_load;
 #[derive(Clone, Copy)]
 struct DragOrigin {
     cursor: (i32, i32),
     window: (i32, i32),
 }
-type AlphaKey = (usize, u32, u32, bool, bool);
+/// Present runtime text with the same rules in the live shell and software review.
+/// This helper does not create native overlays, emit audio or change preferences.
+pub(crate) fn apply_runtime_status(ui: &AppWindow, view: &RuntimeView) {
+    ui.set_background_running(true);
+    ui.set_on_battery(view.on_battery);
+    ui.set_runtime_status(view.status.as_str().into());
+    ui.set_next_reminder(view.next.as_str().into());
+    ui.set_pause_caption(view.countdown.as_str().into());
+    ui.set_breakfast_done(view.breakfast_done);
+    ui.set_exercise_active(view.exercise_active);
+    ui.set_pending_text(view.notice.as_ref().map_or("", |n| n.text.as_str()).into());
+    ui.set_pending_key(view.notice.as_ref().map_or("", |n| n.key.as_str()).into());
+}
+
+type AlphaKey = (usize, u32, u32, u32, bool, bool);
+type ImageKey = (usize, u32, u32, u32, bool);
 type ClipCache = Rc<Cell<Option<(isize, u32, u32, u32, bool)>>>;
 pub struct Shell {
     pub pet: PetWindow,
@@ -41,11 +58,10 @@ pub struct Shell {
     blink: slint::Timer,
     ticks: Cell<u64>,
     visual_key: RefCell<String>,
-    visual_frames: std::sync::Arc<std::sync::Mutex<Option<crate::visuals::Frames>>>,
+    visual_frames: std::sync::Arc<std::sync::Mutex<visual_load::Slot<crate::visuals::Frames>>>,
     visual_timer: slint::Timer,
-    visual_serial: std::sync::Arc<std::sync::atomic::AtomicU64>,
     visual_started: std::time::Instant,
-    visual_last: Cell<Option<usize>>,
+    visual_last: Cell<Option<ImageKey>>,
     happy_until: Cell<Option<std::time::Instant>>,
     alpha_key: Cell<Option<AlphaKey>>,
     pet_clip: ClipCache,
@@ -201,7 +217,6 @@ impl Shell {
             visual_key: RefCell::new(String::new()),
             visual_frames: Default::default(),
             visual_timer: slint::Timer::default(),
-            visual_serial: Default::default(),
             visual_started: std::time::Instant::now(),
             visual_last: Cell::new(None),
             happy_until: Cell::new(None),
@@ -280,7 +295,7 @@ impl Shell {
         let Ok(frames) = self.visual_frames.lock() else {
             return;
         };
-        let Some(frames) = frames.as_ref() else {
+        let Some(frames) = frames.get() else {
             return;
         };
         let elapsed = self.visual_started.elapsed().as_millis() as u64;
@@ -288,13 +303,11 @@ impl Shell {
             .happy_until
             .get()
             .is_some_and(|until| until > std::time::Instant::now());
-        let reaction = view.audio_busy || happy;
-        let active = view.prefs.reminders.animation_intensity.active(
-            view.prefs.reminders.animation,
+        let active = view.prefs.reminders.animation_active(
             desktop::animation_allowed(),
             view.paused,
             elapsed,
-            reaction,
+            view.audio_busy || happy,
         );
         let index = frames.index(
             elapsed,
@@ -303,15 +316,30 @@ impl Shell {
             view.notice.as_ref().is_some_and(|n| n.followup > 0),
             happy,
         );
-        if self.visual_last.replace(Some(index)) != Some(index) {
-            self.pet.set_custom_image(frames.image(index));
-        }
         self.pet.set_custom_visual(true);
         let size = self.pet.window().size();
+        let scale = self.pet.window().scale_factor();
+        let placement = frames.scene_placement(index, size.width, size.height, scale, view.paused);
+        let image_key = (index, size.width, size.height, scale.to_bits(), view.paused);
+        if self.visual_last.replace(Some(image_key)) != Some(image_key) {
+            let image = frames.image_at(index, placement);
+            self.pet.set_custom_image(image.clone());
+            if let Some(ui) = self.ui.upgrade() {
+                ui.set_today_image(image);
+                ui.set_today_custom(true);
+                ui.set_today_pixelated(frames.pixelated);
+            }
+        }
+        self.pet.set_custom_pixelated(frames.pixelated);
+        self.pet.set_custom_left(placement.left as f32 / scale);
+        self.pet.set_custom_top(placement.top as f32 / scale);
+        self.pet.set_custom_width(placement.width as f32 / scale);
+        self.pet.set_custom_height(placement.height as f32 / scale);
         let key = (
             index,
             size.width,
             size.height,
+            scale.to_bits(),
             view.paused,
             view.pending > 0,
         );
@@ -324,7 +352,7 @@ impl Shell {
                 size.height,
                 view.paused,
                 view.pending > 0,
-                self.pet.window().scale_factor(),
+                scale,
             );
             match desktop::alpha_region(hwnd, &spans) {
                 Ok(()) => self.alpha_key.set(Some(key)),
@@ -471,6 +499,7 @@ impl Shell {
         action!(self.message, on_silence, Command::Silence);
         if let Some(ui) = self.ui.upgrade() {
             action!(ui, on_stretch_now, Command::Stretch);
+            action!(ui, on_cancel_stretch, Command::CancelStretch);
             action!(ui, on_mark_breakfast, Command::Breakfast);
             action!(ui, on_review_pending, Command::Review);
             action!(ui, on_silence, Command::Silence);
@@ -602,70 +631,71 @@ impl Shell {
             self.visual_last.set(None);
             self.alpha_key.set(None);
             let serial = self
-                .visual_serial
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                + 1;
-            if let Ok(mut f) = self.visual_frames.lock() {
-                *f = None;
-            }
+                .visual_frames
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .begin();
             self.pet.set_custom_visual(false);
+            if let Some(ui) = self.ui.upgrade() {
+                ui.set_today_custom(false);
+            }
             if !view.prefs.desktop.visual_preset.is_empty()
                 && let Some(ui) = self.ui.upgrade()
             {
                 let root = std::path::PathBuf::from(ui.get_storage_path().as_str());
                 let id = view.prefs.desktop.visual_preset.clone();
                 let frames = self.visual_frames.clone();
-                let current = self.visual_serial.clone();
                 let weak = self.ui.clone();
                 std::thread::spawn(move || {
                     let result = (|| {
                         let preset = kavychka_storage::presets::read(&root, &id)
                             .map_err(|e| e.to_string())?;
-                        if let kavychka_storage::presets::Content::Visual { file, layout } =
-                            preset.content
-                        {
+                        if let Some((file, layout)) = preset.content.visual() {
                             crate::visuals::load(
                                 &kavychka_storage::presets::inside(
                                     &kavychka_storage::presets::folder(&root, &id)
                                         .map_err(|e| e.to_string())?,
-                                    &file,
+                                    file,
                                 )
                                 .map_err(|e| e.to_string())?,
-                                &layout,
+                                layout,
                             )
                         } else {
                             Err("Selected preset is not a visual".into())
                         }
                     })();
-                    if current.load(std::sync::atomic::Ordering::SeqCst) == serial {
-                        match result {
-                            Ok(f) => {
-                                if let Ok(mut frames) = frames.lock() {
-                                    *frames = Some(f);
-                                }
+                    match result {
+                        Ok(f) => {
+                            if let Ok(mut frames) = frames.lock() {
+                                frames.publish(serial, f);
                             }
-                            Err(e) => {
-                                let _ = weak.upgrade_in_event_loop(move |ui| {
+                        }
+                        Err(e) => {
+                            let _ = weak.upgrade_in_event_loop(move |ui| {
+                                if frames.lock().is_ok_and(|frames| frames.is_current(serial)) {
                                     ui.set_runtime_status(e.into())
-                                });
-                            }
+                                }
+                            });
                         }
                     }
                 });
             }
         }
-        if prior
-            .as_ref()
-            .is_none_or(|p| p.prefs.desktop.pet_size != view.prefs.desktop.pet_size)
-        {
+        let pet_geometry_changed = prior.as_ref().is_none_or(|p| {
+            p.prefs.desktop.pet_size != view.prefs.desktop.pet_size || p.paused != view.paused
+        });
+        self.pet.set_paused(view.paused);
+        if pet_geometry_changed {
             self.pet.window().set_size(slint::LogicalSize::new(
                 f32::from(view.prefs.desktop.pet_size),
-                f32::from(view.prefs.desktop.pet_size),
+                crate::visuals::Frames::window_height(
+                    f32::from(view.prefs.desktop.pet_size),
+                    view.paused,
+                ),
             ));
         }
         let en = view.prefs.ui_language == Language::En;
         self.pet.set_english(en);
-        self.pet.set_paused(view.paused);
         self.pet.set_countdown(view.countdown.as_str().into());
         self.pet.set_pending(view.pending as i32);
         self.message.set_english(en);
@@ -680,14 +710,7 @@ impl Shell {
             tray.set_breakfast_done(view.breakfast_done);
         }
         if let Some(ui) = self.ui.upgrade() {
-            ui.set_background_running(true);
-            ui.set_on_battery(view.on_battery);
-            ui.set_runtime_status(view.status.as_str().into());
-            ui.set_next_reminder(view.next.as_str().into());
-            ui.set_pause_caption(view.countdown.as_str().into());
-            ui.set_breakfast_done(view.breakfast_done);
-            ui.set_pending_text(view.notice.as_ref().map_or("", |n| n.text.as_str()).into());
-            ui.set_pending_key(view.notice.as_ref().map_or("", |n| n.key.as_str()).into());
+            apply_runtime_status(&ui, &view);
             if !ui.get_dirty() && !ui.get_busy() {
                 super::apply(&ui, &view.prefs);
             }
@@ -709,6 +732,9 @@ impl Shell {
                         .is_none_or(|v| v.pet_position != view.pet_position)
                 {
                     let _ = desktop::place(hwnd, view.pet_position);
+                } else if pet_geometry_changed {
+                    let p = self.pet.window().position();
+                    let _ = desktop::place(hwnd, Some((p.x, p.y)));
                 }
             }
         } else {
@@ -765,8 +791,7 @@ impl Shell {
                 != Some(&notice.key)
             {
                 self.pet
-                    .set_attention(view.prefs.reminders.animation_intensity.active(
-                        view.prefs.reminders.animation,
+                    .set_attention(view.prefs.reminders.animation_active(
                         desktop::animation_allowed(),
                         view.paused,
                         0,
@@ -791,8 +816,7 @@ impl Shell {
         let ticks = self.ticks.get() + 1;
         self.ticks.set(ticks);
         let animation = self.view.borrow().as_ref().is_some_and(|v| {
-            v.prefs.reminders.animation_intensity.active(
-                v.prefs.reminders.animation,
+            v.prefs.reminders.animation_active(
                 desktop::animation_allowed(),
                 v.paused,
                 self.visual_started.elapsed().as_millis() as u64,
@@ -855,8 +879,10 @@ impl Drop for Shell {
         self.timer.stop();
         self.blink.stop();
         self.visual_timer.stop();
-        self.visual_serial
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.visual_frames
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .begin();
         if let Some(tray) = self.tray.borrow_mut().take() {
             let _ = tray.hide();
         }

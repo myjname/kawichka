@@ -16,7 +16,7 @@ pub const TEXT_MODELS: &[&str] = &[
 pub const VOICE_MODELS: &[&str] = &["system", "tts-cosyvoice3", "tts-0.6b", "tts-1.7b"];
 pub const CATEGORIES: &[&str] = &["break", "breakfast", "lunch", "dinner", "exercise"];
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Generation {
     pub text_model: String,

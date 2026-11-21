@@ -76,6 +76,15 @@ fn runtime_ready(root: &Path, device: &str, profile: Option<&str>) -> bool {
         .unwrap_or(Value::Null);
     marker.is_object()
         && profile.is_none_or(|profile| marker["profile"] == profile)
+        && [
+            "torch/__init__.py",
+            "qwen_tts/__init__.py",
+            "transformers/__init__.py",
+            "soundfile.py",
+            "tzdata/__init__.py",
+        ]
+        .iter()
+        .all(|name| root.join("runtime/Lib/site-packages").join(name).is_file())
         && (device != "cuda"
             || marker["gpu"] == true
             || marker["torch"].as_str().is_some_and(|s| s.contains("+cu")))
@@ -95,6 +104,43 @@ fn cosy_ready(root: &Path, revision: Option<&str>, profile: Option<&str>) -> boo
             .is_file()
         && root.join("cosy/Matcha-TTS/matcha/utils/audio.py").is_file()
 }
+fn llama_ready(root: &Path, manifest: &Value, device: &str) -> bool {
+    let marker: Value = std::fs::read(root.join("llama/verified.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(Value::Null);
+    if !marker.is_object() || marker.get("gpu").is_some_and(|v| !v.is_boolean()) {
+        return false;
+    }
+    // Original CUDA-only installations had no gpu field.
+    let gpu = marker["gpu"].as_bool().unwrap_or(true);
+    let spec = &manifest[if gpu {
+        "llama_runtime"
+    } else {
+        "llama_cpu_runtime"
+    }];
+    let revision = spec["revision"].as_str();
+    if revision.is_none_or(|revision| marker["revision"] != revision) || device == "cuda" && !gpu {
+        return false;
+    }
+    let required = [
+        "llama-server.exe",
+        "ggml-base.dll",
+        "ggml-cpu-x64.dll",
+        "ggml.dll",
+        "llama.dll",
+        "llama-common.dll",
+        "llama-server-impl.dll",
+        "libomp.dll",
+    ];
+    required
+        .iter()
+        .all(|name| root.join("llama").join(name).is_file())
+        && (!gpu
+            || ["ggml-cuda.dll", "cublas64_13.dll", "cublasLt64_13.dll"]
+                .iter()
+                .all(|name| root.join("llama").join(name).is_file()))
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Model {
     pub id: String,
@@ -104,6 +150,39 @@ pub struct Model {
     pub environment: bool,
     pub bytes: u64,
     pub path: PathBuf,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissingModel {
+    pub id: String,
+    pub name: String,
+    pub files_missing: bool,
+    pub environment_missing: bool,
+}
+/// Normal not-yet-installed state; callers must not spend generation retries on it.
+pub fn selected_unavailable(models: &[Model], prefs: &Preferences) -> Vec<MissingModel> {
+    let mut ids = vec![prefs.generation.tts_model.as_str()];
+    if prefs.generation.text_enabled {
+        ids.push(prefs.generation.text_model.as_str());
+        if prefs.generation.runtime {
+            ids.push(prefs.generation.runtime_text_model.as_str());
+        }
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    ids.into_iter()
+        .filter(|id| *id != "system")
+        .filter_map(|id| {
+            let model = models.iter().find(|m| m.id == id);
+            let files_missing = model.is_none_or(|m| !m.installed);
+            let environment_missing = model.is_none_or(|m| !m.environment);
+            (files_missing || environment_missing).then(|| MissingModel {
+                id: id.into(),
+                name: model.map(|m| m.name.clone()).unwrap_or_else(|| id.into()),
+                files_missing,
+                environment_missing,
+            })
+        })
+        .collect()
 }
 pub fn models(
     app: &Path,
@@ -167,10 +246,7 @@ pub fn models(
             && runtime_roots
                 .iter()
                 .any(|root| match spec["format"].as_str() {
-                    Some("gguf") => {
-                        root.join("llama/llama-server.exe").is_file()
-                            && root.join("llama/verified.json").is_file()
-                    }
+                    Some("gguf") => llama_ready(root, &manifest, &prefs.generation.device),
                     Some("cosyvoice3") => {
                         runtime_roots.iter().any(|r| {
                             runtime_ready(
@@ -215,6 +291,33 @@ pub fn models(
     }
     Ok(list)
 }
+fn worker_watchdog_expired(installing: bool, elapsed: Duration, silence: Duration) -> bool {
+    if installing {
+        elapsed >= Duration::from_secs(6 * 60 * 60) || silence >= Duration::from_secs(15 * 60)
+    } else {
+        elapsed >= Duration::from_secs(30 * 60)
+    }
+}
+fn installation_activity(value: &Result<Value, String>) -> bool {
+    let Ok(message) = value else { return false };
+    match message["kind"].as_str() {
+        Some("progress") => {
+            message["message"]
+                .as_str()
+                .is_some_and(|text| !text.is_empty())
+                && message["done"].as_u64().is_some()
+                && message["total"].as_u64().is_some()
+        }
+        Some("stage") => message["stage"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty()),
+        Some("result") => true,
+        Some("error") => message["message"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty()),
+        _ => false,
+    }
+}
 pub struct Worker {
     pub root: PathBuf,
     pub cancelled: Arc<AtomicBool>,
@@ -223,10 +326,51 @@ pub struct Worker {
     reader: Option<std::thread::JoinHandle<()>>,
     messages: mpsc::Receiver<Result<Value, String>>,
     started: Instant,
+    installing: bool,
+    last_activity_ms: Arc<AtomicU64>,
     finished: bool,
     cancelling: Option<Instant>,
+    diagnostic_log: Option<PathBuf>,
 }
 impl Worker {
+    #[cfg(test)]
+    pub fn result_fixture(root: PathBuf, value: Value) -> Self {
+        let mut worker = Self::inert_fixture(root);
+        let (sender, receiver) = mpsc::channel();
+        sender.send(Ok(value)).unwrap();
+        worker.messages = receiver;
+        worker
+    }
+    #[cfg(test)]
+    pub fn inert_fixture(root: PathBuf) -> Self {
+        // A test harness help process provides a real, harmless Child handle;
+        // installation queue tests must never download or launch inference.
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .arg("--help")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let (_tx, messages) = mpsc::channel();
+        Self {
+            root,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            child: command.spawn().unwrap(),
+            job: None,
+            reader: None,
+            messages,
+            started: Instant::now(),
+            installing: false,
+            last_activity_ms: Arc::new(AtomicU64::new(0)),
+            finished: false,
+            cancelling: None,
+            diagnostic_log: None,
+        }
+    }
     pub fn start(
         app: &Path,
         library: &Path,
@@ -238,13 +382,11 @@ impl Worker {
             std::process::id(),
             SERIAL.fetch_add(1, Ordering::Relaxed)
         );
-        let root = library.join("jobs").join(format!(
-            "{id}-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_nanos()
-        ));
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos();
+        let root = library.join("jobs").join(format!("{id}-{timestamp}"));
         std::fs::create_dir(&root).map_err(|e| e.to_string())?;
         let mut pending = PendingStaging {
             root: root.clone(),
@@ -298,6 +440,7 @@ impl Worker {
                 || !managed_python.is_file() && !original_python.is_file()
                 || voices && !managed_full && !original_full
                 || cosy
+                    && !managed_full
                     && !cosy_ready(
                         &library.join("components"),
                         manifest["cosy_runtime"]["revision"].as_str(),
@@ -338,6 +481,14 @@ impl Worker {
             .create_new(true)
             .open(root.join("worker.log"))
             .map_err(|e| e.to_string())?;
+        let diagnostic_log = if installing {
+            let directory = library.join("logs");
+            kavychka_storage::preview::no_link_chain(&directory).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+            Some(directory.join(format!("model-install-{id}-{timestamp}.log")))
+        } else {
+            None
+        };
         let mut command = if needs_bootstrap {
             let mut cmd =
                 std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
@@ -360,6 +511,7 @@ impl Worker {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
+        let started = Instant::now();
         let mut child = command.spawn().map_err(|e| e.to_string())?;
         let job = match kavychka_platform::process::Job::assign_background(&child) {
             Ok(j) => j,
@@ -388,6 +540,8 @@ impl Worker {
         let stdout = child.stdout.take().ok_or("worker stdout missing")?;
         let (tx, messages) = mpsc::channel();
         let expected = id.clone();
+        let last_activity_ms = Arc::new(AtomicU64::new(0));
+        let reader_activity_ms = last_activity_ms.clone();
         let reader = std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             loop {
@@ -413,6 +567,13 @@ impl Worker {
                                     Err("worker protocol/task mismatch".into())
                                 }
                             });
+                        if installing && installation_activity(&value) {
+                            // Only task/version-checked stdout messages count.
+                            // Record arrival time here, independently of UI polls;
+                            // stderr and protocol errors cannot extend the wait.
+                            reader_activity_ms
+                                .store(started.elapsed().as_millis() as u64, Ordering::Release);
+                        }
                         if tx.send(value).is_err() {
                             break;
                         }
@@ -431,9 +592,12 @@ impl Worker {
             job: Some(job),
             reader: Some(reader),
             messages,
-            started: Instant::now(),
+            started,
+            installing,
+            last_activity_ms,
             finished: false,
             cancelling: None,
+            diagnostic_log,
         };
         pending.armed = false;
         Ok(worker)
@@ -455,26 +619,35 @@ impl Worker {
     pub fn cancelling(&self) -> bool {
         self.cancelling.is_some()
     }
+    pub fn diagnostic_log(&self) -> Option<&Path> {
+        self.diagnostic_log.as_deref()
+    }
     pub fn poll(&mut self) -> Vec<Result<Value, String>> {
         let mut output: Vec<_> = self.messages.try_iter().collect();
         if self.cancelled.load(Ordering::Acquire) {
             self.request_cancel();
         }
+        let elapsed = self.started.elapsed();
+        let silence = elapsed.saturating_sub(Duration::from_millis(
+            self.last_activity_ms.load(Ordering::Acquire),
+        ));
         if self
             .cancelling
             .is_some_and(|t| t.elapsed() >= Duration::from_secs(3))
-            || self.started.elapsed() > Duration::from_secs(1800)
+            || worker_watchdog_expired(self.installing, elapsed, silence)
         {
             self.terminate();
             output.clear();
-            output.push(Err("Генерация отменена или превышено время ожидания".into()));
+            output.push(Err(
+                "Задача отменена или превышено время ожидания / Task cancelled or timed out".into(),
+            ));
             return output;
         }
         if self.cancelling.is_some() {
             output.clear();
             if self.finished || self.child.try_wait().ok().flatten().is_some() {
                 self.terminate();
-                output.push(Err("Генерация отменена / Generation cancelled".into()));
+                output.push(Err("Задача отменена / Task cancelled".into()));
             }
             return output;
         }
@@ -495,8 +668,11 @@ impl Worker {
                     .is_ok_and(|v| v["kind"] == "result" || v["kind"] == "error")
             }) {
                 output.push(Err(format!(
-                    "Генератор завершился без результата. Журнал: {}",
-                    self.root.join("worker.log").display()
+                    "Задача завершилась без результата. Журнал: {}",
+                    self.diagnostic_log
+                        .clone()
+                        .unwrap_or_else(|| self.root.join("worker.log"))
+                        .display()
                 )));
             }
             self.finished = true;
@@ -519,7 +695,33 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         self.terminate();
+        if let Some(target) = &self.diagnostic_log {
+            let _ = retain_install_log(&self.root.join("worker.log"), target);
+        }
     }
+}
+fn retain_install_log(source: &Path, target: &Path) -> Result<(), String> {
+    use std::io::{Read, Seek, SeekFrom};
+    kavychka_storage::preview::no_link_chain(source).map_err(|e| e.to_string())?;
+    kavychka_storage::preview::no_link_chain(target).map_err(|e| e.to_string())?;
+    let mut input = std::fs::File::open(source).map_err(|e| e.to_string())?;
+    let bytes = input.metadata().map_err(|e| e.to_string())?.len();
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .map_err(|e| e.to_string())?;
+    const LIMIT: u64 = 2_000_000;
+    if bytes > LIMIT {
+        input
+            .seek(SeekFrom::Start(bytes - LIMIT))
+            .map_err(|e| e.to_string())?;
+        output
+            .write_all(b"Earlier diagnostic output omitted; last 2 MB retained.\n")
+            .map_err(|e| e.to_string())?;
+    }
+    std::io::copy(&mut input.take(LIMIT), &mut output).map_err(|e| e.to_string())?;
+    output.sync_all().map_err(|e| e.to_string())
 }
 pub fn request(prefs: &Preferences, rows: &[Phrase], operation: &str, day: &str) -> Value {
     let language = if prefs.speech_language == kavychka_core::preferences::Language::Ru {
@@ -531,6 +733,155 @@ pub fn request(prefs: &Preferences, rows: &[Phrase], operation: &str, day: &str)
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn installation_watchdog_allows_progress_after_thirty_minutes() {
+        use std::time::Duration;
+        assert!(!super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(31 * 60),
+            Duration::from_secs(5),
+        ));
+        assert!(!super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(6 * 60 * 60 - 1),
+            Duration::from_secs(0),
+        ));
+    }
+
+    #[test]
+    fn installation_watchdog_bounds_silence_and_total_time() {
+        use std::time::Duration;
+        assert!(!super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(60 * 60),
+            Duration::from_secs(15 * 60 - 1),
+        ));
+        assert!(super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(60 * 60),
+            Duration::from_secs(15 * 60),
+        ));
+        assert!(super::worker_watchdog_expired(
+            true,
+            Duration::from_secs(6 * 60 * 60),
+            Duration::ZERO,
+        ));
+    }
+
+    #[test]
+    fn generation_watchdog_keeps_absolute_thirty_minute_limit() {
+        use std::time::Duration;
+        assert!(!super::worker_watchdog_expired(
+            false,
+            Duration::from_secs(30 * 60 - 1),
+            Duration::from_secs(30 * 60 - 1),
+        ));
+        assert!(super::worker_watchdog_expired(
+            false,
+            Duration::from_secs(30 * 60),
+            Duration::ZERO,
+        ));
+    }
+
+    #[test]
+    fn installation_watchdog_uses_validated_activity_and_ignores_protocol_errors() {
+        use super::*;
+        // Bootstrap, pip and download progress all use this stdout contract.
+        for message in [
+            json!({"kind":"stage","stage":"install_runtime"}),
+            json!({"kind":"progress","phase":"install_runtime","message":"Installing speech components","done":0,"total":0}),
+            json!({"kind":"progress","phase":"install_models","message":"Downloading model","done":1048576,"total":6975879296_u64}),
+            json!({"kind":"result","ready":true}),
+            json!({"kind":"error","message":"Installation failed"}),
+        ] {
+            assert!(installation_activity(&Ok(message)));
+        }
+        for message in [
+            json!({"kind":"unrecognized","message":"stderr text"}),
+            json!({"kind":"progress","message":"missing counts"}),
+            json!({"kind":"progress","message":"","done":0,"total":0}),
+            json!({"kind":"progress","message":"bad counts","done":"one","total":0}),
+            json!({"kind":"stage","stage":null}),
+        ] {
+            assert!(!installation_activity(&Ok(message)));
+        }
+        assert!(!installation_activity(&Err(
+            "worker protocol/task mismatch".into()
+        )));
+        assert!(!installation_activity(&Err(
+            "invalid JSON or stdout message exceeds limit".into()
+        )));
+    }
+
+    #[test]
+    fn text_engine_readiness_requires_revision_libraries_and_requested_device() {
+        use super::*;
+        let base =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../work/text-engine-readiness-tests");
+        std::fs::create_dir_all(&base).unwrap();
+        let temp = tempfile::tempdir_in(base).unwrap();
+        let root = temp.path();
+        let folder = root.join("llama");
+        std::fs::create_dir(&folder).unwrap();
+        let manifest = json!({"llama_runtime":{"revision":"cuda-qualified"},"llama_cpu_runtime":{"revision":"cpu-qualified"}});
+        let marker = folder.join("verified.json");
+        let save =
+            |value: Value| std::fs::write(&marker, serde_json::to_vec(&value).unwrap()).unwrap();
+        save(json!({"revision":"cpu-qualified","gpu":false}));
+        std::fs::write(folder.join("llama-server.exe"), b"fixture").unwrap();
+        assert!(!llama_ready(root, &manifest, "cpu"));
+        for name in [
+            "ggml-base.dll",
+            "ggml-cpu-x64.dll",
+            "ggml.dll",
+            "llama.dll",
+            "llama-common.dll",
+            "llama-server-impl.dll",
+            "libomp.dll",
+        ] {
+            std::fs::write(folder.join(name), b"fixture").unwrap();
+        }
+        assert!(llama_ready(root, &manifest, "cpu"));
+        assert!(llama_ready(root, &manifest, "auto"));
+        assert!(!llama_ready(root, &manifest, "cuda"));
+        save(json!({"revision":"old-cpu","gpu":false}));
+        assert!(!llama_ready(root, &manifest, "cpu"));
+        save(json!({"revision":"cuda-qualified"}));
+        assert!(!llama_ready(root, &manifest, "cuda"));
+        for name in ["ggml-cuda.dll", "cublas64_13.dll", "cublasLt64_13.dll"] {
+            std::fs::write(folder.join(name), b"fixture").unwrap();
+        }
+        assert!(llama_ready(root, &manifest, "cuda"));
+        save(json!({"revision":"cuda-qualified","gpu":"true"}));
+        assert!(!llama_ready(root, &manifest, "cuda"));
+        save(json!({"revision":"cuda-qualified","gpu":true}));
+        std::fs::remove_file(folder.join("libomp.dll")).unwrap();
+        assert!(!llama_ready(root, &manifest, "cpu"));
+    }
+    #[test]
+    fn installation_diagnostic_survives_job_cleanup_and_never_overwrites_an_existing_log() {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../work/install-log-tests");
+        std::fs::create_dir_all(&base).unwrap();
+        let temp = tempfile::tempdir_in(base).unwrap();
+        let job = temp.path().join("job");
+        std::fs::create_dir(&job).unwrap();
+        let input = job.join("worker.log");
+        let output = temp.path().join("saved-install.log");
+        std::fs::write(&input, b"bootstrap network failure\n").unwrap();
+        super::retain_install_log(&input, &output).unwrap();
+        std::fs::remove_file(&input).unwrap();
+        std::fs::remove_dir(job).unwrap();
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            b"bootstrap network failure\n"
+        );
+        assert!(super::retain_install_log(&output, &output).is_err());
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            b"bootstrap network failure\n"
+        );
+    }
     #[test]
     fn old_runtime_profile_requires_explicit_upgrade_and_does_not_edit_its_marker() {
         let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -549,8 +900,59 @@ mod tests {
             br#"{"torch":"2.14.1+cu126","gpu":true,"profile":"new-profile"}"#,
         )
         .unwrap();
+        for name in [
+            "torch/__init__.py",
+            "qwen_tts/__init__.py",
+            "transformers/__init__.py",
+            "soundfile.py",
+            "tzdata/__init__.py",
+        ] {
+            let path = t.path().join("runtime/Lib/site-packages").join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"qualified fixture").unwrap();
+        }
         assert!(super::runtime_ready(t.path(), "cpu", Some("new-profile")));
         assert!(super::runtime_ready(t.path(), "cuda", Some("new-profile")));
+    }
+
+    #[test]
+    fn selected_readiness_distinguishes_weights_and_environment_and_runtime_model() {
+        use super::*;
+        let mut prefs = Preferences::default();
+        prefs.generation.text_enabled = true;
+        prefs.generation.runtime = true;
+        prefs.generation.text_model = "text-main".into();
+        prefs.generation.runtime_text_model = "text-live".into();
+        prefs.generation.tts_model = "tts-local".into();
+        let models = vec![
+            Model {
+                id: "text-main".into(),
+                name: "Main".into(),
+                kind: "text".into(),
+                installed: true,
+                environment: true,
+                bytes: 1,
+                path: PathBuf::new(),
+            },
+            Model {
+                id: "tts-local".into(),
+                name: "Voice".into(),
+                kind: "voice".into(),
+                installed: true,
+                environment: false,
+                bytes: 1,
+                path: PathBuf::new(),
+            },
+        ];
+        let missing = selected_unavailable(&models, &prefs);
+        assert_eq!(missing.len(), 2);
+        let voice = missing.iter().find(|m| m.id == "tts-local").unwrap();
+        assert!(!voice.files_missing && voice.environment_missing);
+        let live = missing.iter().find(|m| m.id == "text-live").unwrap();
+        assert!(live.files_missing && live.environment_missing);
+        prefs.generation.runtime = false;
+        prefs.generation.tts_model = "system".into();
+        assert!(selected_unavailable(&models, &prefs).is_empty());
     }
 
     #[test]

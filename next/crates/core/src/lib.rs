@@ -6,6 +6,7 @@ pub mod legacy;
 pub mod legacy_active;
 pub mod legacy_state;
 pub mod preferences;
+pub mod preparation;
 pub mod reminders;
 pub mod schedule;
 pub mod stock;

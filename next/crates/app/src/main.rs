@@ -1,12 +1,17 @@
 //! Working P3 shell. Explicit isolated data only; no implicit live-store migration.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod bootstrap;
+mod controls_smoke;
 mod data_ops;
+mod display_path;
 mod frame_measurement;
 mod frame_probe;
 mod inference;
+mod installation;
+mod library_actions;
 mod library_ui_smoke;
 mod migration_smoke;
+mod model_setup_smoke;
 mod models_library;
 mod models_smoke;
 mod models_ui;
@@ -29,6 +34,7 @@ mod shell_settings;
 mod shell_smoke;
 mod smoke;
 mod soak;
+use kavychka_storage::support;
 mod transfer_ui;
 mod updater;
 mod visuals;
@@ -127,11 +133,19 @@ fn apply(ui: &AppWindow, prefs: &Preferences) {
         let _ = ui.show();
     }
     shell_settings::select_saved(ui, &prefs.reminders.audio_device);
-    ui.set_animation_index(match prefs.reminders.animation_intensity {
-        AnimationIntensity::Off => 0,
-        AnimationIntensity::Subtle => 1,
-        AnimationIntensity::Expressive => 2,
-    });
+    ui.set_animation_index(
+        if !prefs.reminders.animation
+            || prefs.reminders.animation_intensity == AnimationIntensity::Off
+        {
+            0
+        } else if prefs.reminders.idle_continuous {
+            2
+        } else {
+            1
+        },
+    );
+    ui.set_idle_play_seconds(prefs.reminders.idle_play_seconds.into());
+    ui.set_idle_pause_seconds(prefs.reminders.idle_pause_seconds.into());
     let s = &prefs.schedule;
     ui.set_start_time(format_time(s.work_start));
     ui.set_end_time(format_time(s.work_end));
@@ -179,6 +193,12 @@ fn collect(ui: &AppWindow) -> Result<Preferences, String> {
     };
     let loaded: Preferences =
         serde_json::from_str(ui.get_loaded_prefs().as_str()).map_err(|e| e.to_string())?;
+    let animation_mode = ui.get_animation_index();
+    if !(0..=2).contains(&animation_mode) {
+        return Err("invalid animation mode".into());
+    }
+    let prior_intensity = loaded.reminders.animation_intensity;
+    let prior_continuous = loaded.reminders.idle_continuous;
     let mut prefs = Preferences {
         format: 1,
         theme: match ui.get_theme_index() {
@@ -226,13 +246,19 @@ fn collect(ui: &AppWindow) -> Result<Preferences, String> {
                 .map_err(|e| e.to_string())?,
             meal_repeats: u32::try_from(ui.get_meal_repeats()).map_err(|e| e.to_string())?,
             pet_visible: ui.get_pet_visible(),
-            animation: ui.get_animation(),
-            animation_intensity: match ui.get_animation_index() {
+            animation: ui.get_animation() && animation_mode != 0,
+            animation_intensity: match animation_mode {
                 0 => AnimationIntensity::Off,
-                1 => AnimationIntensity::Subtle,
-                2 => AnimationIntensity::Expressive,
-                _ => return Err("invalid animation intensity".into()),
+                _ if prior_intensity == AnimationIntensity::Off => AnimationIntensity::Subtle,
+                _ => prior_intensity,
             },
+            idle_continuous: if animation_mode == 0 {
+                prior_continuous
+            } else {
+                animation_mode == 2
+            },
+            idle_play_seconds: number(ui.get_idle_play_seconds())?,
+            idle_pause_seconds: number(ui.get_idle_pause_seconds())?,
             audio_device: ui.get_audio_device_id().to_string(),
             audio: parse_audio(ui.get_audio_index())?,
             fullscreen_audio: parse_audio(ui.get_fullscreen_audio_index())?,
@@ -652,7 +678,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let current = kavychka_maintenance::install::current(&PathBuf::from(root))
             .map_err(|e| e.to_string())?
             .ok_or("Installed data pointer missing")?;
-        if current.data != args.data
+        if !installation::same_data_path(&current.data, &args.data)
             || !args.data.join("shell.sqlite3").is_file()
             || !std::fs::read(args.data.join("shell-sandbox.owner"))
                 .is_ok_and(|b| b == b"kavychka-shell-sandbox-v1\n")
@@ -666,7 +692,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     shell::select_backend(false)?;
     let ui = AppWindow::new()?;
     ui.set_app_version(app_version().into());
-    ui.set_storage_path(args.data.to_string_lossy().as_ref().into());
+    ui.set_storage_path(crate::display_path::display(&args.data).into());
     ui.set_system_dark(kavychka_platform::dark_preference().unwrap_or(false));
     let theme_timer = slint::Timer::default();
     let weak = ui.as_weak();

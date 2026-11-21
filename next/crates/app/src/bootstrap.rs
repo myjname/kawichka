@@ -34,7 +34,7 @@ fn ensure_python_with_repair(
     }
     if runtime.exists() {
         if !repair {
-            return Err("Неизвестная или повреждённая среда в components/runtime; выбери восстановление среды. / Unverified managed runtime; choose Repair environment.".into());
+            return Err("Управляемая среда Python требует восстановления. Нажмите «Подготовить модели». / Managed Python needs recovery; choose Set up models.".into());
         }
         let managed_absolute = managed.canonicalize()?;
         let source = runtime.canonicalize()?;
@@ -196,14 +196,28 @@ pub fn worker() -> Result<()> {
     let python = ensure_python_with_repair(
         &app,
         &library,
-        request["repair_environment"] == true,
+        // This is already an explicit installation request in an owned data
+        // root. Retain an unverified managed runtime and recover automatically;
+        // the old source environment and all model weights remain untouched.
+        true,
         |message| {
             println!(
                 "{}",
-                serde_json::json!({"version":1,"task":task,"kind":"progress","message":message})
+                serde_json::json!({"version":1,"task":task,"kind":"progress","phase":"install_runtime","message":message,"done":0,"total":0,"percent":null})
             )
         },
-    )?;
+    );
+    let python = match python {
+        Ok(python) => python,
+        Err(error) => {
+            eprintln!("Python bootstrap failed: {error}");
+            println!(
+                "{}",
+                serde_json::json!({"version":1,"task":task,"kind":"error","phase":"install_runtime","message":format!("Не удалось подготовить Python для моделей: {error}. Повторите «Подготовить модели» / Could not prepare Python; retry Set up models"),"detail":error.to_string()})
+            );
+            return Ok(());
+        }
+    };
     let mut cmd = std::process::Command::new(python);
     cmd.arg("-B")
         .arg(app.join("next/worker.py"))
