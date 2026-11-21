@@ -3,6 +3,7 @@ name = "kavychka-platform"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 kavychka-core = { path = "../core" }

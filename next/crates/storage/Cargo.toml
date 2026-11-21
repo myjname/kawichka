@@ -3,6 +3,7 @@ name = "kavychka-storage"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 zip = { version = "=0.6.6", default-features = false, features = ["deflate"] }

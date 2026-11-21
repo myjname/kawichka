@@ -5,8 +5,8 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED_ROOTS = {".github", "assets", "backend", "docs", "scripts", "src", "tests", "next", "prototypes"}
-ALLOWED_TOP = {".gitignore", ".gitattributes", "README.md", "START.bat", "LICENSE"}
+ALLOWED_ROOTS = {".github", "assets", "backend", "docs", "scripts", "tests", "next", "prototypes"}
+ALLOWED_TOP = {".gitignore", ".gitattributes", "README.md", "LICENSE"}
 ALLOWED_EXTENSIONS = {".cs", ".py", ".json", ".ps1", ".bat", ".md", ".yml", ".yaml", ".txt", ".rs", ".toml", ".lock", ".slint", ".svg", ".csproj", ".config", ".manifest"}
 PRESET_SOURCE_MODULES = {
     "next/crates/storage/src/presets/packs.rs",
@@ -24,7 +24,7 @@ SECRET_PATTERNS = (
 def check():
     output = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "--cached", "--others", "--exclude-standard", "-z"])
     names = {name.decode("utf-8") for name in output.split(b"\0") if name}
-    if "src/Kavychka.cs" not in names or "assets/voice/default-en.wav" not in names:
+    if "next/Cargo.toml" not in names or "assets/voice/default-en.wav" not in names:
         raise ValueError("The public source selection is incomplete")
     issues = []
     for name in sorted(names):
