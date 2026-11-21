@@ -41,6 +41,68 @@ fn probe(_: &Path, c: &Current) -> Result<()> {
     s.save(&p)?;
     Ok(())
 }
+#[cfg(windows)]
+#[test]
+#[ignore = "explicit native fixture; set KAVYCHKA_JUNCTION_TEST_ROOT to a temporary test directory"]
+fn owned_cleanup_rejects_a_junction_to_another_owned_directory() {
+    let scratch = PathBuf::from(
+        std::env::var_os("KAVYCHKA_JUNCTION_TEST_ROOT")
+            .expect("set an isolated junction fixture root"),
+    );
+    assert!(scratch.is_absolute());
+    std::fs::create_dir_all(&scratch).unwrap();
+    let t = tempfile::tempdir_in(scratch).unwrap();
+    let versions = t.path().join("versions");
+    let active = versions.join("1.0.0");
+    std::fs::create_dir_all(active.join("nested")).unwrap();
+    std::fs::write(active.join("nested/keep"), b"active version").unwrap();
+    let stage = versions.join("stage-1.1.0");
+    let script = t.path().join("create-junction.ps1");
+    std::fs::write(&script, b"param([string]$Link,[string]$Target)\r\nNew-Item -ItemType Junction -Path $Link -Target $Target -ErrorAction Stop | Out-Null\r\n").unwrap();
+    let powershell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    let mut command = std::process::Command::new(powershell);
+    command
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
+        .arg(script)
+        .arg("-Link")
+        .arg(stage.to_string_lossy().trim_start_matches("\\\\?\\"))
+        .arg("-Target")
+        .arg(active.to_string_lossy().trim_start_matches("\\\\?\\"));
+    crate::windows::hide(&mut command);
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "junction fixture failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(delete_owned_tree(&stage, &versions).is_err());
+    assert!(delete_owned_tree(&stage.join("nested"), &versions).is_err());
+    assert_eq!(
+        std::fs::read(active.join("nested/keep")).unwrap(),
+        b"active version"
+    );
+    std::fs::remove_dir(stage).unwrap();
+}
+#[cfg(windows)]
+#[test]
+#[ignore = "explicit native fixture; set KAVYCHKA_SHORTCUT_TEST_ROOT to a temporary test directory"]
+fn shortcut_staging_preserves_existing_named_neighbors() {
+    let scratch = PathBuf::from(
+        std::env::var_os("KAVYCHKA_SHORTCUT_TEST_ROOT")
+            .expect("set an isolated shortcut fixture root"),
+    );
+    assert!(scratch.is_absolute());
+    std::fs::create_dir_all(&scratch).unwrap();
+    let t = tempfile::tempdir_in(scratch).unwrap();
+    crate::windows::verify_shortcuts(&t.path().join("evidence")).unwrap();
+}
 #[test]
 fn update_execution_rechecks_digest_manifest_and_denies_replacement() {
     let t = temp();
@@ -134,6 +196,54 @@ fn portable_folder_move_update_and_rollback_keep_owned_paths_and_external_models
     );
     assert!(!bundle.exists());
     assert!(!t.path().join("Kavychka-next-install.json").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn update_accepts_the_same_storage_with_either_windows_prefix_and_rejects_other_storage() {
+    for canonical_first in [true, false] {
+        let t = temp();
+        let root = t.path().join("program");
+        let ordinary = t.path().join("data");
+        std::fs::create_dir(&ordinary).unwrap();
+        let canonical = ordinary.canonicalize().unwrap();
+        assert_ne!(ordinary, canonical);
+        let (first, next) = if canonical_first {
+            (&canonical, &ordinary)
+        } else {
+            (&ordinary, &canonical)
+        };
+        let v1 = package(t.path(), "0.1.0");
+        let v2 = package(t.path(), "0.2.0");
+        let v3 = package(t.path(), "0.3.0");
+        apply(&root, first, &v1, probe).unwrap();
+        let old = current(&root).unwrap().unwrap();
+        let before = {
+            let s = kavychka_storage::sandbox::Sandbox::open(&old.data).unwrap();
+            serde_json::to_value(s.load().unwrap()).unwrap()
+        };
+        apply(&root, next, &v2, |_, _| Ok(())).unwrap();
+        let updated = current(&root).unwrap().unwrap();
+        assert_eq!(updated.version, "0.2.0");
+        assert_eq!(updated.common, old.common);
+        assert_eq!(updated.data, old.data);
+        assert_eq!(updated.common.canonicalize().unwrap(), canonical);
+        {
+            let s = kavychka_storage::sandbox::Sandbox::open(&updated.data).unwrap();
+            assert_eq!(serde_json::to_value(s.load().unwrap()).unwrap(), before);
+        }
+        let other = t.path().join("data-other");
+        let error = apply(&root, &other, &v3, |_, _| Ok(())).unwrap_err();
+        assert!(error.to_string().contains("existing data folder"));
+        assert!(!other.exists());
+        assert_eq!(current(&root).unwrap().unwrap().version, "0.2.0");
+        rollback(&root).unwrap();
+        let restored = current(&root).unwrap().unwrap();
+        assert_eq!(restored.version, "0.1.0");
+        assert_eq!(restored.common.canonicalize().unwrap(), canonical);
+        let s = kavychka_storage::sandbox::Sandbox::open(&restored.data).unwrap();
+        assert_eq!(serde_json::to_value(s.load().unwrap()).unwrap(), before);
+    }
 }
 #[test]
 fn reviewed_removal_preserves_data_external_models_and_reinstall_then_full_is_explicit() {

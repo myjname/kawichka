@@ -86,6 +86,27 @@ struct Publication {
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+fn mapped_audio(root: &Path, mapping: &BTreeMap<String, String>, name: &str) -> Result<String> {
+    if let Some(mapped) = mapping.get(name) {
+        return Ok(mapped.clone());
+    }
+    #[cfg(windows)]
+    {
+        // Match the same existing file accepted by snapshot::assets, using the
+        // filesystem's case/alias policy rather than Unicode text case folding.
+        let actual = presets::inside(&root.join("audio"), name)?.canonicalize()?;
+        if let Some(mapped) = actual
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| mapping.get(n))
+        {
+            return Ok(mapped.clone());
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = root;
+    Err(invalid("audio mapping missing"))
+}
 fn fingerprint(root: &Path, snapshot: &Snapshot, cancel: &AtomicBool) -> Result<String> {
     // A periodic checkpoint alone does not stale a reviewed plan. Actual user
     // preferences and reminder state must never be overwritten by an old plan.
@@ -397,12 +418,7 @@ impl RestorePlan {
                 }
                 let mut row = source.clone();
                 if let Some(path) = &row.audio_path {
-                    row.audio_path = Some(
-                        audio
-                            .get(path)
-                            .ok_or_else(|| invalid("audio mapping missing"))?
-                            .clone(),
-                    );
+                    row.audio_path = Some(mapped_audio(&inspected.root, &audio, path)?);
                 }
                 if let Some(id) = preset_map.get(&row.profile) {
                     row.profile = id.clone();

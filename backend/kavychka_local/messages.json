@@ -120,8 +120,8 @@
     "Choosing CosyVoice delivery for the new phrase"
   ],
   [
-    "Сначала установите компонент «{0}» на вкладке «Модели»",
-    "Install “{0}” in Models first"
+    "Файлы выбранной модели не готовы. Откройте «Голос и модели» и нажмите «Подготовить модели».",
+    "Selected model files are not ready. Open Voice and models and choose Set up models."
   ],
   [
     "Загрузка {0}",
@@ -144,12 +144,12 @@
     "Speech: {0}"
   ],
   [
-    "Сначала установите «llama.cpp · генератор текста» на вкладке «Модели»",
-    "Install “llama.cpp · text generator” in Models first"
+    "Компоненты генерации текста не готовы. Откройте «Голос и модели» и нажмите «Подготовить модели».",
+    "Text generation components are not ready. Open Voice and models and choose Set up models."
   ],
   [
-    "Сначала установите «Среда CosyVoice» на вкладке «Модели»",
-    "Install the CosyVoice runtime in Models first"
+    "Компоненты озвучки CosyVoice не готовы. Откройте «Голос и модели» и нажмите «Подготовить модели».",
+    "CosyVoice speech components are not ready. Open Voice and models and choose Set up models."
   ],
   [
     "Модель вернула пустое или повреждённое аудио",

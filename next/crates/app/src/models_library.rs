@@ -17,6 +17,34 @@ use std::{
 };
 #[derive(Clone, Serialize, serde::Deserialize)]
 pub struct View {
+    #[serde(default)]
+    pub support_texts: Vec<String>,
+    #[serde(default)]
+    pub support_generated: bool,
+    #[serde(default)]
+    pub support_index: usize,
+    #[serde(default)]
+    pub audio_available: Vec<String>,
+    #[serde(default)]
+    pub imported_preset: String,
+    #[serde(default)]
+    pub imported_applied: bool,
+    #[serde(default)]
+    pub all_total: usize,
+    #[serde(default)]
+    pub today_total: usize,
+    #[serde(default)]
+    pub delivery_states: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub task_kind: String,
+    #[serde(default)]
+    pub task_phase: String,
+    #[serde(default)]
+    pub task_progress: Option<f64>,
+    #[serde(default)]
+    pub task_details: String,
+    #[serde(default)]
+    pub task_error: bool,
     pub phrases: Vec<Phrase>,
     #[serde(default)]
     pub total: usize,
@@ -52,6 +80,17 @@ pub enum Preview {
     Text(String, Language),
 }
 pub struct Manager {
+    support: crate::support::Day,
+    support_preferences: Option<Preferences>,
+    support_index: usize,
+    imported_preset: String,
+    imported_applied: bool,
+    task_phase: String,
+    task_progress: Option<f64>,
+    task_details: String,
+    task_error: bool,
+    pending_install: Option<Value>,
+    readiness_cache: Option<(String, std::time::Instant, Vec<inference::MissingModel>)>,
     app: PathBuf,
     resources: PathBuf,
     worker: Option<Worker>,
@@ -63,6 +102,10 @@ pub struct Manager {
     runtime_request: Option<Value>,
     auto_attempts: u32,
     auto_date: String,
+    audio_date: Option<String>,
+    daily_complete: bool,
+    support_complete: bool,
+    daily_final: bool,
     auto_cancelled_day: Option<String>,
     last_publish: String,
     pub cancellation: Arc<AtomicBool>,
@@ -174,11 +217,33 @@ impl Manager {
                     })
             });
         let saved = saved.unwrap_or(json!({}));
+        kavychka_core::preparation::validate(&saved)?;
+        // Older versions had no completion marker and kept replenishing rows.
+        // Treat an existing day's library as prepared on upgrade; repairing a
+        // partial old batch remains an explicit Prepare day action.
+        let legacy_prepared = saved.get("daily_complete").is_none()
+            && saved["day"].as_str().is_some_and(|day| !day.is_empty())
+            && store
+                .phrases()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .any(|row| row.day.as_deref() == saved["day"].as_str());
         Ok(Self {
+            support: Default::default(),
+            support_preferences: None,
+            support_index: 0,
             app,
             resources,
             worker: None,
             kind: String::new(),
+            imported_preset: String::new(),
+            imported_applied: false,
+            task_phase: String::new(),
+            task_progress: None,
+            task_details: String::new(),
+            task_error: false,
+            pending_install: None,
+            readiness_cache: None,
             status: cleanup_warning,
             preview: None,
             waiting: None,
@@ -186,6 +251,15 @@ impl Manager {
             runtime_request: None,
             auto_attempts: saved["attempts"].as_u64().unwrap_or(0).min(3) as u32,
             auto_date: saved["day"].as_str().unwrap_or("").into(),
+            audio_date: store
+                .meta("audio_day")
+                .map_err(|e| e.to_string())?
+                .and_then(|v| v.as_str().map(str::to_owned)),
+            daily_complete: saved["daily_complete"].as_bool().unwrap_or(legacy_prepared),
+            support_complete: saved["support_complete"]
+                .as_bool()
+                .unwrap_or(legacy_prepared),
+            daily_final: false,
             auto_cancelled_day: saved["cancelled_day"].as_str().map(str::to_owned),
             last_publish: String::new(),
             cancellation,
@@ -203,7 +277,7 @@ impl Manager {
             runtime_deferred: false,
             battery_override: false,
             data_hold: false,
-            library_today: false,
+            library_today: true,
             library_page: 0,
             library_day: now.date.to_string(),
             archive_page: 0,
@@ -213,7 +287,16 @@ impl Manager {
     pub fn running(&self) -> bool {
         self.worker.is_some()
     }
-    pub fn resume_preparation(&mut self) {
+    pub fn can_install(&self) -> Result<(), String> {
+        if self.running() && !["daily", "runtime", "support"].contains(&self.kind.as_str()) {
+            return Err("Дождись текущей задачи или отмени её перед подготовкой моделей / Wait for the current task or cancel it before model setup".into());
+        }
+        Ok(())
+    }
+    pub fn resume_preparation(&mut self, clock: Clock) {
+        self.auto_date = clock.date.to_string();
+        self.daily_complete = false;
+        self.support_complete = false;
         self.auto_cancelled_day = None;
         self.auto_attempts = 0;
         self.auto_next = None;
@@ -232,7 +315,7 @@ impl Manager {
         cancelled
     }
     fn persist_preparation(&mut self, store: &Sandbox) -> Result<(), String> {
-        let value = json!({"day":self.auto_date,"attempts":self.auto_attempts,"next":self.auto_next,"cancelled_day":self.auto_cancelled_day});
+        let value = json!({"day":self.auto_date,"attempts":self.auto_attempts,"next":self.auto_next,"cancelled_day":self.auto_cancelled_day,"daily_complete":self.daily_complete,"support_complete":self.support_complete});
         let saved = serde_json::to_string(&value).map_err(|e| e.to_string())?;
         if self.saved_preparation != saved {
             store
@@ -253,22 +336,55 @@ impl Manager {
         self.data_hold = value;
     }
     pub fn cancel(&mut self) {
+        self.pending_install = None;
         self.runtime_request = None;
         self.battery_override = false;
         self.cancellation.store(false, Ordering::Release);
         if let Some(worker) = &mut self.worker {
             worker.request_cancel();
         }
-        self.status = "Генерация отменена / Generation cancelled".into();
+        self.status = "Задача отменена / Task cancelled".into();
+        self.task_phase = "cancelled".into();
+        self.task_progress = None;
         self.dirty = true;
     }
     pub fn invalidate(&mut self) {
         self.dirty = true;
     }
+    pub fn apply_imported(&self, store: &Sandbox, prefs: &mut Preferences) -> Result<(), String> {
+        let preset = kavychka_storage::presets::read(&store.root, &self.imported_preset)
+            .map_err(|e| e.to_string())?;
+        let entry = kavychka_storage::presets::Entry {
+            id: self.imported_preset.clone(),
+            preset,
+        };
+        let mut next = prefs.clone();
+        crate::presets_ui::apply_to_preferences(&mut next, &entry);
+        next.validate()?;
+        *prefs = next;
+        Ok(())
+    }
+    pub fn import_aborted(&mut self) {
+        self.imported_preset.clear();
+        self.imported_applied = false;
+        self.task_error = true;
+        self.invalidate();
+    }
+    pub fn import_committed(&mut self) {
+        self.imported_applied = true;
+        self.status = "Персонаж импортирован и применён / Character imported and applied".into();
+        self.invalidate();
+    }
     pub fn browse(&mut self, today: bool, page: usize) {
         self.library_today = today;
         self.library_page = page;
         self.invalidate();
+    }
+    pub fn remove_support(&mut self, store: &Sandbox, ids: &[String]) -> Result<(), String> {
+        kavychka_storage::support::remove(store, &mut self.support, ids)?;
+        self.status = "Поддержка удалена из списка / Support removed from list".into();
+        self.invalidate();
+        Ok(())
     }
     pub fn browse_archive(&mut self, page: usize) {
         self.archive_page = page;
@@ -278,6 +394,9 @@ impl Manager {
         let daily = self.kind == "daily";
         self.cancel();
         self.status = error;
+        self.task_error = true;
+        self.task_phase = "failed".into();
+        self.task_details = self.status.clone();
         if daily {
             self.auto_attempts += 1;
             self.auto_next = Some(clock.utc + chrono::Duration::seconds(60));
@@ -298,8 +417,7 @@ impl Manager {
             wait.deadline = wait.deadline.min(clock.utc);
         }
         self.dirty = true;
-        self.auto_attempts = 0;
-        self.auto_next = None;
+        // A preference/preset edit must not reopen a completed day's preparation.
     }
     pub fn allow_current_task_on_battery(&mut self) {
         self.battery_override = self.worker.is_some() && self.kind == "batch";
@@ -311,8 +429,38 @@ impl Manager {
         action: crate::presets_ui::Action,
     ) -> Result<(), String> {
         use kavychka_storage::presets::{self, Content, Preset};
+        if !self.running() {
+            self.kind = "preset".into();
+            self.task_phase.clear();
+            self.task_progress = None;
+            self.task_details.clear();
+            self.task_error = false;
+        }
         match action {
+            crate::presets_ui::Action::ImportAndApply(path) => {
+                let previous = self.imported_preset.clone();
+                let applied = self.imported_applied;
+                if let Err(error) = self.preset_action(
+                    store,
+                    prefs,
+                    crate::presets_ui::Action::Import(path, "character".into(), String::new()),
+                ) {
+                    self.imported_preset = previous;
+                    self.imported_applied = applied;
+                    return Err(error);
+                }
+                let p =
+                    presets::read(&store.root, &self.imported_preset).map_err(|e| e.to_string())?;
+                if p.content.description().is_none() {
+                    presets::delete(&store.root, &self.imported_preset)
+                        .map_err(|e| e.to_string())?;
+                    self.imported_preset = previous;
+                    self.imported_applied = applied;
+                    return Err("Этот файл не содержит характера персонажа / File does not contain a character description".into());
+                }
+            }
             crate::presets_ui::Action::Import(path, kind, transcript) => {
+                self.imported_applied = false;
                 if self.running() {
                     return Err("Отмени текущую задачу / Cancel the current task".into());
                 }
@@ -321,7 +469,7 @@ impl Manager {
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_ascii_lowercase();
-                let id = if ext == "kavychka" || ext == "json" {
+                let id = if matches!(ext.as_str(), "kavychka" | "json" | "zip") {
                     presets::import_file(&store.root, &path).map_err(|e| e.to_string())?
                 } else if kind == "character" {
                     kavychka_storage::preview::no_link_chain(&path).map_err(|e| e.to_string())?;
@@ -342,7 +490,7 @@ impl Manager {
                     )
                     .map_err(|e| e.to_string())?
                 } else if kind == "visual" {
-                    crate::visuals::validate(&path, "auto")?;
+                    crate::visuals::validate(&path, "smooth")?;
                     let p = Preset {
                         version: 1,
                         name: path
@@ -358,7 +506,7 @@ impl Manager {
                                 .ok_or("missing visual filename")?
                                 .to_string_lossy()
                                 .into(),
-                            layout: "auto".into(),
+                            layout: "smooth".into(),
                         },
                     };
                     presets::import_prepared(&store.root, &p, path.parent())
@@ -390,25 +538,29 @@ impl Manager {
                     return self.start(store,json!({"operation":"preset_import","settings":prefs.generation.worker_settings(if prefs.speech_language==Language::Ru {"ru"}else{"en"}, &prefs.user_name),"input":path,"preset_kind":"voice","transcript":transcript}),"preset_import");
                 };
                 // Decode before exposing a visual in the selection lists.
-                if let Content::Visual { file, layout } = presets::read(&store.root, &id)
-                    .map_err(|e| e.to_string())?
-                    .content
+                let imported = presets::read(&store.root, &id).map_err(|e| e.to_string())?;
+                if let Some((file, layout)) = imported.content.visual()
                     && let Err(error) = crate::visuals::validate(
                         &presets::inside(
                             &presets::folder(&store.root, &id).map_err(|e| e.to_string())?,
-                            &file,
+                            file,
                         )
                         .map_err(|e| e.to_string())?,
-                        &layout,
+                        layout,
                     )
                 {
                     presets::delete(&store.root, &id).map_err(|e| e.to_string())?;
                     return Err(error);
                 }
-                self.status = format!("Пресет добавлен / Preset imported: {id}");
+                self.imported_preset = id;
+                self.kind = "preset".into();
+                self.status = format!(
+                    "Добавлено: {}. Выбор подготовлен; сохрани настройки / Imported; save settings to apply",
+                    imported.name
+                );
             }
             crate::presets_ui::Action::Save(id, preset) => {
-                if let Content::Visual { file, layout } = &preset.content {
+                if let Some((file, layout)) = preset.content.visual() {
                     crate::visuals::validate(
                         &presets::inside(
                             &presets::folder(&store.root, &id).map_err(|e| e.to_string())?,
@@ -430,13 +582,25 @@ impl Manager {
                 }
                 self.status = "Пресет сохранён / Preset saved".into();
             }
+            crate::presets_ui::Action::SavePack(name, draft) => {
+                if self.running() {
+                    return Err("Дождись завершения задачи / Wait for the current task".into());
+                }
+                self.imported_applied = false;
+                self.imported_preset = presets::save_current_pack(&store.root, name, &draft)
+                    .map_err(|e| e.to_string())?;
+                self.kind = "preset".into();
+                self.status = "Персонаж создан. Сохрани настройки, чтобы применить / Character created; save settings to apply".into();
+            }
             crate::presets_ui::Action::Delete(id) => {
                 if id == prefs.generation.voice_profile
                     || id == prefs.desktop.character_preset
                     || id == prefs.desktop.visual_preset
-                    || store.has_voice_reference(&id).map_err(|e| e.to_string())?
                 {
                     return Err("Сначала выбери другой пресет и сохрани настройки / Select another preset and save first".into());
+                }
+                if store.has_voice_reference(&id).map_err(|e| e.to_string())? {
+                    return Err("Пресет связан с историей библиотеки; смена текущего голоса не удаляет эти связи / Preset is referenced by library history; changing the active voice does not remove those references".into());
                 }
                 if self.running() {
                     return Err("Дождись задачи / Wait for the current task".into());
@@ -470,14 +634,32 @@ impl Manager {
             request["rotation"] = rotation;
         }
         self.task_day = request["day"].as_str().unwrap_or("").into();
-        self.worker = Some(Worker::start(
-            &self.app,
-            &store.root,
-            &self.resources,
-            request,
-        )?);
+        self.daily_final = kind == "daily" && request["operation"] != "speech";
         self.kind = kind.into();
-        self.status = "Генерация… / Generating…".into();
+        self.task_phase = "checking".into();
+        self.task_progress = None;
+        self.task_details.clear();
+        self.task_error = false;
+        let worker =
+            Worker::start(&self.app, &store.root, &self.resources, request).map_err(|error| {
+                self.task_details = error.clone();
+                self.task_error = true;
+                self.task_phase = "failed".into();
+                self.status = if kind == "install" {
+                    install_failure().into()
+                } else {
+                    error
+                };
+                self.dirty = true;
+                self.status.clone()
+            })?;
+        self.worker = Some(worker);
+        self.status = if kind == "install" {
+            "Проверяю выбранные модели и компоненты / Checking selected models and components"
+        } else {
+            "Задача запущена / Task started"
+        }
+        .into();
         self.dirty = true;
         Ok(())
     }
@@ -488,6 +670,7 @@ impl Manager {
         clock: Clock,
         daily: bool,
     ) -> Result<(), String> {
+        self.require_models(store, prefs)?;
         let rows = store.phrases().map_err(|e| e.to_string())?;
         let day = clock.date.to_string();
         let mut request = inference::request(prefs, &rows, "generate", &day);
@@ -505,7 +688,7 @@ impl Manager {
             }
         }
         if daily {
-            let missing = planning
+            let mut missing = planning
                 .iter()
                 .filter(|r| {
                     !r.deleted
@@ -515,13 +698,14 @@ impl Manager {
                         && r.audio_path.is_none()
                         && r.model != "system"
                 })
-                .take(100)
                 .cloned()
                 .map(|mut r| {
                     r.approved |= prefs.generation.daily_auto_keep;
                     r
                 })
                 .collect::<Vec<_>>();
+            missing.sort_by_key(|row| (preparation_priority(&row.category), row.followup));
+            missing.truncate(100);
             if !missing.is_empty() {
                 request["operation"] = json!("speech");
                 request["rows"] = json!(missing);
@@ -534,6 +718,9 @@ impl Manager {
             batch_tasks(prefs)
         };
         if tasks.is_empty() {
+            if daily {
+                self.daily_complete = true;
+            }
             self.status = "День уже подготовлен / Day is ready".into();
             return Ok(());
         }
@@ -597,6 +784,9 @@ impl Manager {
                     .map_err(|e| e.to_string())?;
             }
             self.status = "Встроенные фразы подготовлены / Stock phrases prepared".into();
+            if daily {
+                self.daily_complete = true;
+            }
             self.dirty = true;
             return Ok(());
         }
@@ -610,15 +800,32 @@ impl Manager {
         clock: Clock,
         id: Option<&str>,
     ) -> Result<(), String> {
+        self.speech_selected(
+            store,
+            prefs,
+            clock,
+            id.map(|s| vec![s.to_owned()]).as_deref(),
+        )
+    }
+    pub fn speech_selected(
+        &mut self,
+        store: &mut Sandbox,
+        prefs: &Preferences,
+        clock: Clock,
+        ids: Option<&[String]>,
+    ) -> Result<(), String> {
+        let mut voice_only = prefs.clone();
+        voice_only.generation.text_enabled = false;
+        self.require_models(store, &voice_only)?;
         let rows = store.phrases().map_err(|e| e.to_string())?;
         let selected = rows
             .iter()
             .filter(|r| {
                 !r.deleted
-                    && !r.rejected
-                    && id.map_or(r.day.as_deref() == Some(&clock.date.to_string()), |id| {
-                        r.id == id
-                    })
+                    && ids.map_or(
+                        !r.rejected && r.day.as_deref() == Some(&clock.date.to_string()),
+                        |ids| ids.contains(&r.id),
+                    )
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -651,7 +858,20 @@ impl Manager {
         prefs: &Preferences,
         clock: Clock,
     ) -> Result<(), String> {
+        self.export_selected(store, prefs, clock, None)
+    }
+    pub fn export_selected(
+        &mut self,
+        store: &Sandbox,
+        prefs: &Preferences,
+        clock: Clock,
+        ids: Option<&[String]>,
+    ) -> Result<(), String> {
         let rows = store.phrases().map_err(|e| e.to_string())?;
+        let rows = rows
+            .into_iter()
+            .filter(|r| !r.deleted && ids.is_none_or(|ids| ids.contains(&r.id)))
+            .collect::<Vec<_>>();
         let mut request = inference::request(prefs, &rows, "export", &clock.date.to_string());
         request["rows"] = json!(rows);
         self.start(store, request, "export")
@@ -679,27 +899,85 @@ impl Manager {
         clock: Clock,
         repair: bool,
     ) -> Result<(), String> {
+        self.can_install()?;
         let mut request = inference::request(prefs, &[], "install", &clock.date.to_string());
         request["repair_environment"] = json!(repair);
         let mut ids = vec![];
         if prefs.generation.text_enabled {
-            ids.push(if prefs.generation.runtime {
-                prefs.generation.runtime_text_model.clone()
-            } else {
-                prefs.generation.text_model.clone()
-            });
+            ids.push(prefs.generation.text_model.clone());
+            if prefs.generation.runtime && !ids.contains(&prefs.generation.runtime_text_model) {
+                ids.push(prefs.generation.runtime_text_model.clone());
+            }
         }
         if prefs.generation.tts_model != "system" {
             ids.push(prefs.generation.tts_model.clone());
         }
         if ids.is_empty() {
+            self.kind = "install".into();
+            self.task_phase = "ready".into();
+            self.task_progress = Some(1.);
+            self.task_error = false;
+            self.task_details.clear();
             self.status =
                 "Базовый режим готов без загрузки / Basic mode is ready without downloads".into();
             self.dirty = true;
             return Ok(());
         }
         request["ids"] = json!(ids);
+        if self.running() && ["daily", "runtime", "support"].contains(&self.kind.as_str()) {
+            self.cancel();
+            self.pending_install = Some(request);
+            self.status = "Останавливаю фоновую подготовку перед установкой / Stopping background preparation before model setup".into();
+            self.dirty = true;
+            return Ok(());
+        }
         self.start(store, request, "install")
+    }
+    fn unavailable(
+        &mut self,
+        store: &Sandbox,
+        prefs: &Preferences,
+    ) -> Result<Vec<inference::MissingModel>, String> {
+        let key = serde_json::to_string(&prefs.generation).map_err(|e| e.to_string())?;
+        if let Some((old, checked, value)) = &self.readiness_cache
+            && old == &key
+            && checked.elapsed() < std::time::Duration::from_secs(2)
+        {
+            return Ok(value.clone());
+        }
+        let value = inference::selected_unavailable(
+            &inference::models(&self.app, &self.resources, &store.root, prefs)?,
+            prefs,
+        );
+        self.readiness_cache = Some((key, std::time::Instant::now(), value.clone()));
+        Ok(value)
+    }
+    fn require_models(&mut self, store: &Sandbox, prefs: &Preferences) -> Result<(), String> {
+        if self.worker.is_some() {
+            return Err(
+                "Дождись текущей задачи или отмени её / Wait for the current task or cancel it"
+                    .into(),
+            );
+        }
+        let missing = self.unavailable(store, prefs)?;
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let details = missing
+            .iter()
+            .map(|m| m.name.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let status = "Открой «Голос и модели» и нажми «Подготовить модели» / Open Voice and models and choose Set up models";
+        let changed = self.kind != "setup" || self.task_details != details || self.status != status;
+        self.kind = "setup".into();
+        self.task_phase = "setup_required".into();
+        self.task_progress = None;
+        self.task_error = false;
+        self.task_details = details;
+        self.status = status.into();
+        self.dirty |= changed;
+        Err(self.status.clone())
     }
     pub fn tick(
         &mut self,
@@ -723,13 +1001,27 @@ impl Manager {
             self.attempted.retain(|key| active.contains(key.as_str()));
         }
         if self.library_day != day {
-            self.library_day = day;
+            self.library_day = day.clone();
             self.library_page = 0;
             self.invalidate();
         }
         if self.data_hold {
             self.runtime_deferred = true;
             return Ok(());
+        }
+        let local = kavychka_platform::time::local_in(clock.utc, &engine.prefs.desktop.time_zone)
+            .map_err(|e| e.to_string())?;
+        let support_index = (chrono::Timelike::hour(&local) / 12) as usize;
+        if self.support_index != support_index {
+            self.support_index = support_index;
+            self.invalidate();
+        }
+        if self.support.day != day || self.support_preferences.as_ref() != Some(&engine.prefs) {
+            if self.support.identity != crate::support::identity(&engine.prefs, &day) {
+                self.support = crate::support::load(store, &engine.prefs, &day)?;
+                self.invalidate();
+            }
+            self.support_preferences = Some(engine.prefs.clone());
         }
         let new_day = clock.date.to_string();
         let fullscreen_deferred =
@@ -740,11 +1032,14 @@ impl Manager {
         self.runtime_deferred = fullscreen_deferred || battery_deferred || paused;
         if self.running()
             && (fullscreen_deferred
-                && ["daily", "batch", "runtime", "speech"].contains(&self.kind.as_str())
+                && ["daily", "batch", "runtime", "speech", "support"].contains(&self.kind.as_str())
                 || battery_deferred
                     && !self.battery_override
-                    && ["daily", "batch", "runtime", "speech"].contains(&self.kind.as_str())
-                || paused && ["daily", "batch", "runtime", "speech"].contains(&self.kind.as_str()))
+                    && ["daily", "batch", "runtime", "speech", "support"]
+                        .contains(&self.kind.as_str())
+                || paused
+                    && ["daily", "batch", "runtime", "speech", "support"]
+                        .contains(&self.kind.as_str()))
         {
             self.cancel();
             if let Some(wait) = &mut self.waiting {
@@ -755,7 +1050,7 @@ impl Manager {
         if (self.running() || self.waiting.is_some())
             && !self.task_day.is_empty()
             && self.task_day < new_day
-            && ["daily", "batch", "runtime", "speech"].contains(&self.kind.as_str())
+            && ["daily", "batch", "runtime", "speech", "support"].contains(&self.kind.as_str())
         {
             self.cancel();
             self.waiting = None;
@@ -770,35 +1065,63 @@ impl Manager {
                 self.dirty = true;
             }
         }
-        let cancelled = self.take_user_cancellation(clock);
+        let mut cancelled = self.take_user_cancellation(clock);
         let mut finished = false;
         let mut failed = false;
         if let Some(worker) = &mut self.worker {
             let was_cancelled = worker.cancelling();
+            cancelled |= was_cancelled;
             for result in worker.poll() {
                 self.dirty = true;
                 match result {
                     Err(error) => {
-                        self.status = error;
+                        self.task_details = error.clone();
+                        self.task_error = !was_cancelled;
+                        self.status = if self.kind == "install" && !was_cancelled {
+                            install_failure().into()
+                        } else {
+                            error
+                        };
                         finished = true;
                         failed = !was_cancelled;
                     }
                     Ok(value) => match value["kind"].as_str() {
                         Some("progress") => {
+                            self.task_phase = value["phase"].as_str().unwrap_or("working").into();
+                            self.task_progress =
+                                value["percent"].as_f64().map(|v| (v / 100.).clamp(0., 1.));
+                            self.task_details = value["detail"].as_str().unwrap_or("").into();
+                            if let (Some(done), Some(total)) =
+                                (value["done"].as_u64(), value["total"].as_u64())
+                                && total > 0
+                            {
+                                self.task_details.push_str(&format!(
+                                    "\n{:.1} / {:.1} MB",
+                                    done as f64 / 1e6,
+                                    total as f64 / 1e6
+                                ));
+                            }
                             self.status = value["message"].as_str().unwrap_or("Генерация…").into();
+                            if let Some(progress) = self.task_progress {
+                                self.status.push_str(&format!(" · {:.0}%", progress * 100.));
+                            }
                         }
                         Some("stage") => {
-                            self.status = match value["stage"].as_str() {
-                                Some("text") => "Генерация текста / Generating text",
-                                Some("delivery") => "Подбор подачи / Choosing delivery",
-                                Some("release_text") => {
-                                    "Освобождение текстовой модели / Releasing text model"
-                                }
-                                Some("voice") => "Озвучка / Generating speech",
-                                Some("publish") => "Проверка результата / Checking result",
-                                _ => "Генерация… / Generating…",
-                            }
-                            .into();
+                            self.task_phase = value["stage"].as_str().unwrap_or("working").into();
+                            self.task_progress = None;
+                            self.status = value["message"]
+                                .as_str()
+                                .unwrap_or_else(|| match value["stage"].as_str() {
+                                    Some("text") => "Генерация текста / Generating text",
+                                    Some("delivery") => "Подбор подачи / Choosing delivery",
+                                    Some("release_text") => {
+                                        "Освобождение текстовой модели / Releasing text model"
+                                    }
+                                    Some("voice") => "Озвучка / Generating speech",
+                                    Some("publish") => "Проверка результата / Checking result",
+                                    _ => "Генерация… / Generating…",
+                                })
+                                .into();
                         }
                         Some("text") | Some("phrase") => {
                             let mut row: Phrase = serde_json::from_value(value["row"].clone())
@@ -827,6 +1150,18 @@ impl Manager {
                             }
                         }
                         Some("result") => {
+                            if self.kind == "support" && !was_cancelled {
+                                let result = serde_json::from_value(value["texts"].clone())
+                                    .map_err(|e| e.to_string())
+                                    .and_then(|texts| {
+                                        crate::support::accept(store, &mut self.support, texts)
+                                    });
+                                if let Err(error) = result {
+                                    self.task_details = error;
+                                    failed = true;
+                                    self.status="Для поддержки остались готовые тексты / Ready-made encouragement retained".into();
+                                }
+                            }
                             if self.kind == "preset_import" {
                                 let id = value["preset"]["id"]
                                     .as_str()
@@ -859,16 +1194,26 @@ impl Manager {
                                 ));
                                 std::fs::copy(from, &to).map_err(|e| e.to_string())?;
                                 self.status = format!("ZIP: {}", to.display());
+                            } else if self.kind == "install" {
+                                self.status = "Модели готовы к работе / Models are ready".into();
+                            } else if self.kind == "support" {
+                                self.status = if failed { "Не удалось обновить поддержку; готовые тексты сохранены / Could not refresh encouragement; ready-made lines retained" } else { "Фразы поддержки на день готовы / Daily encouragement is ready" }.into();
                             } else {
                                 self.status = "Готово / Ready".into();
                             }
                             finished = true;
                         }
                         Some("error") => {
-                            self.status = value["message"]
+                            self.task_error = true;
+                            self.task_details = value["message"]
                                 .as_str()
-                                .unwrap_or("Ошибка генератора")
+                                .unwrap_or("Unknown worker error")
                                 .into();
+                            self.status = if self.kind == "install" {
+                                install_failure().into()
+                            } else {
+                                self.task_details.clone()
+                            };
                             finished = true;
                             failed = true;
                         }
@@ -884,7 +1229,25 @@ impl Manager {
             finished |= worker.done();
         }
         if finished {
+            self.readiness_cache = None;
+            if cancelled {
+                self.task_phase = "cancelled".into();
+                self.task_progress = None;
+            } else if failed {
+                self.task_phase = "failed".into();
+                self.task_progress = None;
+            } else {
+                self.task_phase = "ready".into();
+                self.task_progress = Some(1.);
+            }
+            self.task_error = failed;
             if let Some(worker) = self.worker.take() {
+                if let Some(log) = worker.diagnostic_log() {
+                    self.task_details.push_str(&format!(
+                        "\nЖурнал / Log: {}",
+                        crate::display_path::display(log)
+                    ));
+                }
                 self.battery_override = false;
                 let path = worker.root.clone();
                 drop(worker);
@@ -897,10 +1260,23 @@ impl Manager {
             }
             if self.kind == "daily" {
                 self.auto_next = Some(clock.utc + chrono::Duration::seconds(60));
+                if !failed
+                    && !cancelled
+                    && self.daily_final
+                    && self.task_day == clock.date.to_string()
+                {
+                    self.daily_complete = true;
+                }
                 if failed && !cancelled {
                     self.auto_attempts += 1;
                 }
             }
+        }
+        if !self.running()
+            && let Some(request) = self.pending_install.take()
+        {
+            self.start(store, request, "install")?;
+            finished = false;
         }
         // Preemption waits for the retiring process tree without losing the
         // original event deadline. Never overlap heavy workers or restart a
@@ -992,27 +1368,32 @@ impl Manager {
         }
         let day = clock.date.to_string();
         if self.auto_date != day && !(self.kind == "export" && self.running()) {
-            if live {
-                store
-                    .prune_quarantine(clock.date)
-                    .map_err(|e| e.to_string())?;
-            }
             self.auto_date = day.clone();
+            self.daily_complete = false;
+            self.support_complete = false;
             self.auto_attempts = 0;
             self.auto_next = None;
-            if let Some(old) = store
-                .meta("audio_day")
-                .map_err(|e| e.to_string())?
-                .and_then(|v| v.as_str().map(str::to_owned))
-                && old < day
-            {
+        }
+        // Manual preparation can set auto_date before this tick. Audio expiry
+        // has its own day marker and must still run exactly once on rollover.
+        if live
+            && !(self.kind == "export" && self.running())
+            && self.audio_date.as_deref() != Some(&day)
+        {
+            store
+                .prune_quarantine(clock.date)
+                .map_err(|e| e.to_string())?;
+            if self.audio_date.as_ref().is_some_and(|old| old < &day) {
                 store.expire_audio(&day, false).map_err(|e| e.to_string())?;
             }
             store
                 .put_meta("audio_day", &json!(day))
                 .map_err(|e| e.to_string())?;
+            self.audio_date = Some(day.clone());
         }
         let may_prepare = live
+            && !self.daily_complete
+            && self.pending_install.is_none()
             && self.auto_cancelled_day.as_deref() != Some(&day)
             && !engine.prefs.generation.runtime
             && engine.prefs.generation.auto_daily
@@ -1020,7 +1401,17 @@ impl Manager {
             && (!env.fullscreen || !engine.prefs.desktop.defer_generation_fullscreen)
             && (!engine.prefs.generation.ac_only
                 || env.power == kavychka_core::engine::PowerSource::Ac);
+        let ready =
+            !may_prepare || self.running() || self.unavailable(store, &engine.prefs)?.is_empty();
         if may_prepare
+            && !ready
+            && !self.running()
+            && !(self.kind == "install" && (self.task_error || self.task_phase == "cancelled"))
+        {
+            let _ = self.require_models(store, &engine.prefs);
+        }
+        if may_prepare
+            && ready
             && !self.running()
             && self.waiting.is_none()
             && self.auto_attempts < 3
@@ -1031,6 +1422,54 @@ impl Manager {
                 self.status = e;
                 self.auto_attempts += 1;
                 self.dirty = true;
+            }
+        }
+        // Support belongs to the same initial daily session, never to a later
+        // character change or library depletion. Missing models use built-ins.
+        if live
+            && self.daily_complete
+            && !self.support_complete
+            && self.auto_cancelled_day.as_deref() != Some(&day)
+            && !engine.prefs.generation.runtime
+            && engine.prefs.generation.auto_daily
+            && !self.running()
+            && self.waiting.is_none()
+            && self.pending_install.is_none()
+            && !self.data_hold
+            && !engine.paused(clock)
+            && (!env.fullscreen || !engine.prefs.desktop.defer_generation_fullscreen)
+            && (!engine.prefs.generation.ac_only
+                || env.power == kavychka_core::engine::PowerSource::Ac)
+            && !(self.kind == "install" && (self.task_error || self.task_phase == "cancelled"))
+        {
+            self.support_complete = true;
+            // Persist the attempt before starting a process, including a failed
+            // launch, so reopening the app cannot start another support batch.
+            self.persist_preparation(store)?;
+            let mut text_only = engine.prefs.clone();
+            text_only.generation.tts_model = "system".into();
+            text_only.generation.voice_profile.clear();
+            text_only.generation.runtime = false;
+            if engine.prefs.desktop.setup_complete
+                && engine.prefs.generation.text_enabled
+                && !self.support.attempted
+                && self.unavailable(store, &text_only)?.is_empty()
+            {
+                self.support.attempted = true;
+                crate::support::save(store, &self.support)?;
+                let mut request = inference::request(&text_only, &[], "support", &day);
+                request["history"] = json!(
+                    crate::support::history(store)?
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                );
+                if let Err(error) = self.start(store, request, "support") {
+                    self.status = format!(
+                        "Поддержка: используются готовые тексты / Encouragement uses ready-made texts: {error}"
+                    );
+                    self.invalidate();
+                }
             }
         }
         self.persist_preparation(store)?;
@@ -1095,6 +1534,8 @@ impl Manager {
             anchor + chrono::Duration::seconds(engine.prefs.generation.runtime_wait_seconds.into());
         // Released runtime work already has an accepted candidate, so choose it like any ready phrase.
         if engine.prefs.generation.runtime
+            && !(self.running() && self.kind == "install")
+            && self.unavailable(store, &engine.prefs)?.is_empty()
             && !self.runtime_deferred
             && deadline > clock.utc
             && self.waiting.is_none()
@@ -1179,10 +1620,7 @@ impl Manager {
         let (presets, preset_warnings) =
             kavychka_storage::presets::scan(&store.root).map_err(|e| e.to_string())?;
         for entry in &presets {
-            if matches!(
-                entry.preset.content,
-                kavychka_storage::presets::Content::Voice { .. }
-            ) {
+            if entry.preset.content.references().is_some() {
                 profiles.push((entry.id.clone(), entry.preset.name.clone()));
             }
         }
@@ -1196,10 +1634,7 @@ impl Manager {
             ));
         }
         let (phrases, total, page) = store
-            .phrase_page(
-                self.library_today.then_some(self.library_day.as_str()),
-                self.library_page,
-            )
+            .phrase_group_page(&self.library_day, self.library_today, self.library_page)
             .map_err(|e| e.to_string())?;
         self.library_page = page;
         let (archived_pending, archived_total, archived_page) = store
@@ -1218,7 +1653,30 @@ impl Manager {
                 "Автоподготовка сегодня отменена. Возобновить — «Подготовить день»."
             });
         }
+        let (all_total, today_total) = store
+            .phrase_totals(&self.library_day)
+            .map_err(|e| e.to_string())?;
         let view = View {
+            support_texts: self.support.texts.clone(),
+            support_generated: self.support.generated,
+            support_index: self.support_index,
+            delivery_states: store
+                .phrase_delivery_states(&phrases)
+                .map_err(|e| e.to_string())?,
+            audio_available: phrases
+                .iter()
+                .filter(|r| r.model == "system" || store.audio_file(r).ok().flatten().is_some())
+                .map(|r| r.id.clone())
+                .collect(),
+            imported_preset: self.imported_preset.clone(),
+            imported_applied: self.imported_applied,
+            all_total,
+            today_total,
+            task_kind: self.kind.clone(),
+            task_phase: self.task_phase.clone(),
+            task_progress: self.task_progress,
+            task_details: self.task_details.clone(),
+            task_error: self.task_error,
             phrases,
             total,
             page,
@@ -1270,6 +1728,9 @@ pub fn category_name(c: Category) -> &'static str {
         Category::Exercise => "exercise",
     }
 }
+fn install_failure() -> &'static str {
+    "Подготовка не завершена. Открой «Подробнее» и повтори / Setup failed. Open Details and retry"
+}
 fn batch_tasks(p: &Preferences) -> Vec<(Category, bool)> {
     let mut categories = vec![];
     for c in [
@@ -1313,6 +1774,16 @@ fn batch_tasks(p: &Preferences) -> Vec<(Category, bool)> {
             )
         })
         .collect()
+}
+fn preparation_priority(category: &str) -> u8 {
+    match category {
+        "breakfast" => 0,
+        "lunch" => 1,
+        "dinner" => 2,
+        "exercise" => 3,
+        "break" => 4,
+        _ => 5,
+    }
 }
 fn daily_tasks(
     p: &Preferences,
@@ -1365,8 +1836,8 @@ fn daily_tasks(
         Category::Breakfast,
         Category::Lunch,
         Category::Dinner,
-        Category::Break,
         Category::Exercise,
+        Category::Break,
     ] {
         for followup in [false, true] {
             for _ in 0..targets
@@ -1375,9 +1846,6 @@ fn daily_tasks(
                 .unwrap_or(0)
             {
                 result.push((c, followup));
-                if result.len() >= 100 {
-                    return Ok(result);
-                }
             }
         }
     }
@@ -1387,6 +1855,160 @@ fn daily_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn full_day_plan_is_not_silently_cut_at_one_hundred_phrases() {
+        let mut prefs = Preferences::default();
+        prefs.desktop.time_zone = "UTC".into();
+        prefs.schedule.work_days = vec![6];
+        prefs.schedule.work_start = 9 * 60;
+        prefs.schedule.work_end = 21 * 60;
+        prefs.schedule.break_every = 5;
+        prefs.schedule.meals_enabled = false;
+        prefs.schedule.exercise_enabled = false;
+        prefs.reminders.break_repeats = 0;
+        prefs.validate().unwrap();
+        assert_eq!(daily_tasks(&prefs, clock(0), &[]).unwrap().len(), 145);
+    }
+    #[test]
+    fn importing_an_ordinary_image_keeps_its_bytes_and_selects_smooth_rendering() {
+        let temp = temp();
+        let mut store = Sandbox::open(&temp.path().join("data")).unwrap();
+        let source = temp.path().join("ordinary.png");
+        let original = image::RgbaImage::from_fn(16, 16, |x, y| {
+            image::Rgba([((x + y) % 2 * 200) as u8, 40, 90, 255])
+        });
+        original.save(&source).unwrap();
+        let bytes = std::fs::read(&source).unwrap();
+        let prefs = store.load().unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        manager
+            .preset_action(
+                &store,
+                &prefs,
+                crate::presets_ui::Action::Import(source, "visual".into(), String::new()),
+            )
+            .unwrap();
+        let preset =
+            kavychka_storage::presets::read(&store.root, &manager.imported_preset).unwrap();
+        let (file, layout) = preset.content.visual().unwrap();
+        assert_eq!(layout, "smooth");
+        let copied = kavychka_storage::presets::folder(&store.root, &manager.imported_preset)
+            .unwrap()
+            .join(file);
+        assert_eq!(std::fs::read(&copied).unwrap(), bytes);
+        let decoded = crate::visuals::load(&copied, layout).unwrap();
+        assert!(!decoded.pixelated);
+        assert_eq!(decoded.frames[0].0, original);
+    }
+    #[test]
+    fn missing_models_do_not_erase_install_failure_or_cancellation_details() {
+        for cancelled in [false, true] {
+            let root = temp();
+            let mut store = Sandbox::open(root.path()).unwrap();
+            let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+            let mut prefs = Preferences::default();
+            prefs.generation.auto_daily = true;
+            prefs.generation.text_enabled = true;
+            prefs.generation.text_model = "text-gemma4-12b".into();
+            prefs.generation.tts_model = "tts-cosyvoice3".into();
+            prefs.generation.ac_only = false;
+            manager.kind = "install".into();
+            if cancelled {
+                manager.cancel();
+            } else {
+                manager.fail("Installation cause and retained log".into(), clock(0));
+            }
+            let expected_status = manager.status.clone();
+            let expected_details = manager.task_details.clone();
+            let expected_phase = manager.task_phase.clone();
+            let mut engine = Engine::new(prefs, Default::default(), clock(0)).unwrap();
+            manager
+                .tick(
+                    &mut store,
+                    &mut engine,
+                    clock(1),
+                    Environment::default(),
+                    &mut Effect::default(),
+                    true,
+                )
+                .unwrap();
+            assert_eq!(manager.kind, "install");
+            assert_eq!(manager.status, expected_status);
+            assert_eq!(manager.task_details, expected_details);
+            assert_eq!(manager.task_phase, expected_phase);
+            assert!(!manager.running());
+            assert_eq!(manager.auto_attempts, 0);
+        }
+    }
+    #[test]
+    fn model_setup_queues_after_background_cancellation_but_never_cancels_a_manual_task() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        let mut prefs = Preferences::default();
+        prefs.generation.text_enabled = true;
+        prefs.generation.text_model = "text-gemma4-12b".into();
+        let job = root.path().join("jobs/job-fixture");
+        std::fs::create_dir(&job).unwrap();
+        manager.worker = Some(Worker::inert_fixture(job));
+        manager.kind = "batch".into();
+        assert!(manager.install(&store, &prefs, clock(0)).is_err());
+        assert!(!manager.worker.as_ref().unwrap().cancelling());
+        assert!(manager.pending_install.is_none());
+        manager.kind = "daily".into();
+        manager.install(&store, &prefs, clock(0)).unwrap();
+        assert!(manager.worker.as_ref().unwrap().cancelling());
+        assert_eq!(
+            manager.pending_install.as_ref().unwrap()["ids"],
+            json!(["text-gemma4-12b"])
+        );
+        manager.cancel();
+        assert!(manager.pending_install.is_none());
+    }
+    #[test]
+    fn missing_dependencies_hold_auto_generation_without_spending_retries_or_publishing_every_tick()
+    {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        let mut prefs = Preferences::default();
+        prefs.generation.auto_daily = true;
+        prefs.generation.text_enabled = true;
+        prefs.generation.text_model = "text-gemma4-12b".into();
+        prefs.generation.tts_model = "tts-cosyvoice3".into();
+        prefs.generation.ac_only = false;
+        let mut engine = Engine::new(prefs, Default::default(), clock(0)).unwrap();
+        manager
+            .tick(
+                &mut store,
+                &mut engine,
+                clock(0),
+                Environment::default(),
+                &mut Effect::default(),
+                true,
+            )
+            .unwrap();
+        let view: View =
+            serde_json::from_str(&manager.view(&store, &engine.prefs).unwrap().unwrap()).unwrap();
+        assert_eq!(view.task_kind, "setup");
+        assert_eq!(view.task_phase, "setup_required");
+        assert!(!view.running);
+        assert_eq!(manager.auto_attempts, 0);
+        manager
+            .tick(
+                &mut store,
+                &mut engine,
+                clock(1),
+                Environment::default(),
+                &mut Effect::default(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(manager.auto_attempts, 0);
+        assert!(!manager.running());
+        assert!(manager.view(&store, &engine.prefs).unwrap().is_none());
+        assert!(store.phrases().unwrap().is_empty());
+    }
     #[test]
     fn runtime_attempts_are_retained_only_for_active_notices_not_entire_process_lifetime() {
         let root = temp();
@@ -1454,37 +2076,44 @@ mod tests {
         assert!(view.status.contains("Подготовить день"));
     }
     #[test]
-    fn disabled_exercise_discards_waiting_and_late_runtime_replacement() {
-        let root = temp();
-        let mut store = Sandbox::open(root.path()).unwrap();
-        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
-        let mut engine = Engine::new(Preferences::default(), Default::default(), clock(0)).unwrap();
-        let notice = engine.manual_stretch(clock(0)).announce.unwrap();
-        manager.waiting = Some(Waiting {
-            notice,
-            deadline: clock(10).utc,
-        });
-        manager.runtime_row = Some(row("late"));
-        manager.kind = "runtime".into();
-        let mut prefs = engine.prefs.clone();
-        prefs.schedule.exercise_enabled = false;
-        engine.preferences(prefs, clock(1)).unwrap();
-        manager.settings_changed(clock(1));
-        let mut effect = Effect::default();
-        manager
-            .tick(
-                &mut store,
-                &mut engine,
-                clock(2),
-                Environment::default(),
-                &mut effect,
-                false,
-            )
-            .unwrap();
-        assert!(effect.announce.is_none());
-        assert!(manager.waiting.is_none());
-        assert!(manager.runtime_row.is_none());
-        assert!(engine.state.pending.is_empty());
+    fn disabled_or_cancelled_exercise_discards_waiting_and_late_runtime_replacement() {
+        for cancel in [false, true] {
+            let root = temp();
+            let mut store = Sandbox::open(root.path()).unwrap();
+            let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+            let mut engine =
+                Engine::new(Preferences::default(), Default::default(), clock(0)).unwrap();
+            let notice = engine.manual_stretch(clock(0)).announce.unwrap();
+            manager.waiting = Some(Waiting {
+                notice,
+                deadline: clock(10).utc,
+            });
+            manager.runtime_row = Some(row("late"));
+            manager.kind = "runtime".into();
+            if cancel {
+                engine.cancel_stretch(clock(1));
+            } else {
+                let mut prefs = engine.prefs.clone();
+                prefs.schedule.exercise_enabled = false;
+                engine.preferences(prefs, clock(1)).unwrap();
+                manager.settings_changed(clock(1));
+            }
+            let mut effect = Effect::default();
+            manager
+                .tick(
+                    &mut store,
+                    &mut engine,
+                    clock(2),
+                    Environment::default(),
+                    &mut effect,
+                    false,
+                )
+                .unwrap();
+            assert!(effect.announce.is_none());
+            assert!(manager.waiting.is_none());
+            assert!(manager.runtime_row.is_none());
+            assert!(engine.state.pending.is_empty());
+        }
     }
     #[test]
     fn user_cancel_is_persisted_until_explicit_resume_or_next_day() {
@@ -1520,7 +2149,7 @@ mod tests {
             )
             .unwrap();
         assert!(store.phrases().unwrap().is_empty());
-        manager.resume_preparation();
+        manager.resume_preparation(clock(63));
         manager
             .tick(
                 &mut store,
@@ -1647,8 +2276,9 @@ mod tests {
         manager.browse(false, usize::MAX);
         let view: View =
             serde_json::from_str(&manager.view(&store, &engine.prefs).unwrap().unwrap()).unwrap();
-        assert_eq!(view.total, 206);
-        assert_eq!(view.phrases.len(), 6);
+        assert_eq!(view.total, 1);
+        assert_eq!(view.phrases.len(), 1);
+        assert_eq!(view.phrases[0].id, "yesterday");
     }
     #[test]
     #[ignore = "explicit installed-model descriptor; no weights downloaded"]
@@ -1932,6 +2562,242 @@ mod tests {
             mono: 1_000_000 + seconds as u64 * 1000,
             date: utc.date_naive(),
         }
+    }
+    #[test]
+    fn completed_daily_session_never_refills_after_use_deletion_settings_or_restart() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let mut prefs = Preferences::default();
+        prefs.desktop.setup_complete = true;
+        prefs.generation.ac_only = false;
+        let mut engine = Engine::new(prefs, Default::default(), clock(0)).unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        let run = |manager: &mut Manager, store: &mut Sandbox, engine: &mut Engine, seconds| {
+            manager
+                .tick(
+                    store,
+                    engine,
+                    clock(seconds),
+                    Environment::default(),
+                    &mut Effect::default(),
+                    true,
+                )
+                .unwrap();
+        };
+        run(&mut manager, &mut store, &mut engine, 0);
+        assert!(manager.daily_complete && manager.support_complete);
+        let initial = store.phrases().unwrap();
+        assert!(!initial.is_empty());
+        for phrase in &initial {
+            store
+                .save_delivery(
+                    &engine.prefs,
+                    &engine.state,
+                    Some((&format!("used:{}", phrase.id), &phrase.id)),
+                )
+                .unwrap();
+            assert!(store.phrase(&phrase.id).unwrap().used_at.is_some());
+        }
+        run(&mut manager, &mut store, &mut engine, 65);
+        assert_eq!(store.phrases().unwrap().len(), initial.len());
+        for phrase in &initial {
+            store.hide_phrase(&phrase.id).unwrap();
+            assert!(store.phrase(&phrase.id).unwrap().deleted);
+        }
+        engine.prefs.generation.character_description = "A different character".into();
+        engine.prefs.generation.text_enabled = true;
+        manager.settings_changed(clock(66));
+        run(&mut manager, &mut store, &mut engine, 130);
+        let mut reopened = Manager::new(&mut store, None, Default::default()).unwrap();
+        run(&mut reopened, &mut store, &mut engine, 200);
+        assert!(reopened.daily_complete && reopened.support_complete);
+        assert!(!reopened.running());
+        assert_eq!(store.phrases().unwrap().len(), initial.len());
+        assert_eq!(
+            std::fs::read_dir(root.path().join("jobs")).unwrap().count(),
+            0
+        );
+        // An explicit request remains possible; a new calendar day reopens once.
+        engine.prefs.generation.text_enabled = false;
+        reopened.resume_preparation(clock(201));
+        reopened
+            .generate(&mut store, &engine.prefs, clock(201), true)
+            .unwrap();
+        assert!(store.phrases().unwrap().len() > initial.len());
+        run(&mut reopened, &mut store, &mut engine, 202);
+        let before = store.phrases().unwrap().len();
+        run(&mut reopened, &mut store, &mut engine, 86400);
+        assert!(store.phrases().unwrap().len() > before);
+        assert!(reopened.daily_complete && reopened.support_complete);
+    }
+    #[test]
+    fn neural_daily_result_closes_session_but_speech_recovery_keeps_initial_session_open() {
+        for (final_stage, success) in [(true, true), (false, true), (true, false)] {
+            let root = temp();
+            let mut store = Sandbox::open(root.path()).unwrap();
+            let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+            manager.auto_date = clock(0).date.to_string();
+            manager.task_day = manager.auto_date.clone();
+            manager.daily_final = final_stage;
+            manager.kind = "daily".into();
+            let job = root.path().join("jobs/job-daily-result");
+            std::fs::create_dir(&job).unwrap();
+            manager.worker = Some(Worker::result_fixture(
+                job,
+                if success {
+                    json!({"kind":"result"})
+                } else {
+                    json!({"kind":"error","message":"fixture failure"})
+                },
+            ));
+            let mut engine =
+                Engine::new(Preferences::default(), Default::default(), clock(0)).unwrap();
+            manager
+                .tick(
+                    &mut store,
+                    &mut engine,
+                    clock(1),
+                    Environment::default(),
+                    &mut Effect::default(),
+                    false,
+                )
+                .unwrap();
+            assert_eq!(manager.daily_complete, final_stage && success);
+            assert_eq!(manager.auto_attempts, if success { 0 } else { 1 });
+            let reopened = Manager::new(&mut store, None, Default::default()).unwrap();
+            assert_eq!(reopened.daily_complete, final_stage && success);
+        }
+    }
+    #[test]
+    fn non_runtime_events_never_generate_missing_phrases_or_speech() {
+        for category in [
+            Category::Breakfast,
+            Category::Lunch,
+            Category::Dinner,
+            Category::Exercise,
+            Category::Break,
+        ] {
+            let root = temp();
+            let mut store = Sandbox::open(root.path()).unwrap();
+            let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+            let mut prefs = Preferences::default();
+            prefs.generation.runtime = false;
+            prefs.generation.text_enabled = true;
+            prefs.generation.tts_model = "tts-cosyvoice3".into();
+            let mut engine = Engine::new(prefs, Default::default(), clock(0)).unwrap();
+            engine.schedule(
+                vec![kavychka_core::reminders::Event {
+                    id: "event-without-prepared-phrase".into(),
+                    due: clock(0).utc,
+                    category,
+                    followup: false,
+                }],
+                clock(0),
+                false,
+            );
+            let mut effect = engine.tick(clock(0), Environment::default(), false);
+            assert!(effect.announce.is_some());
+            assert!(
+                manager
+                    .deliver(&store, &mut engine, clock(0), &mut effect)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(effect.announce.is_some());
+            assert!(!manager.running() && !manager.waiting());
+            assert!(store.phrases().unwrap().is_empty());
+            assert_eq!(
+                std::fs::read_dir(root.path().join("jobs")).unwrap().count(),
+                0
+            );
+        }
+    }
+    #[test]
+    fn upgrade_keeps_existing_day_closed_and_does_not_restart_support_for_a_new_character() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        store.accept_phrase(&row("legacy-prepared"), None).unwrap();
+        store
+            .put_meta(
+                "preparation_state",
+                &json!({"day":clock(0).date.to_string(),"attempts":0}),
+            )
+            .unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        assert!(manager.daily_complete && manager.support_complete);
+        store.hide_phrase("legacy-prepared").unwrap();
+        let mut prefs = Preferences::default();
+        prefs.desktop.setup_complete = true;
+        prefs.generation.ac_only = false;
+        prefs.generation.text_enabled = true;
+        prefs.generation.character_description = "Changed after upgrade".into();
+        let mut engine = Engine::new(prefs, Default::default(), clock(1)).unwrap();
+        manager
+            .tick(
+                &mut store,
+                &mut engine,
+                clock(1),
+                Environment::default(),
+                &mut Effect::default(),
+                true,
+            )
+            .unwrap();
+        assert!(!manager.running());
+        assert_eq!(store.phrases().unwrap().len(), 1);
+        assert_eq!(
+            store.meta("preparation_state").unwrap().unwrap()["support_complete"],
+            true
+        );
+    }
+    #[test]
+    fn encouragement_changes_in_two_local_periods_and_survives_reopening() {
+        let root = temp();
+        let mut store = Sandbox::open(root.path()).unwrap();
+        let mut prefs = Preferences::default();
+        prefs.desktop.time_zone = "UTC".into();
+        prefs.generation.auto_daily = false;
+        prefs.generation.text_enabled = false;
+        let mut engine = Engine::new(prefs, Default::default(), clock(0)).unwrap();
+        let mut manager = Manager::new(&mut store, None, Default::default()).unwrap();
+        for (seconds, index) in [(0, 0), (3600, 0), (10801, 1), (20000, 1)] {
+            manager
+                .tick(
+                    &mut store,
+                    &mut engine,
+                    clock(seconds),
+                    Environment::default(),
+                    &mut Effect::default(),
+                    false,
+                )
+                .unwrap();
+            assert_eq!(manager.support_index, index);
+        }
+        let texts = manager.support.texts.clone();
+        let mut reopened = Manager::new(&mut store, None, Default::default()).unwrap();
+        reopened
+            .tick(
+                &mut store,
+                &mut engine,
+                clock(20001),
+                Environment::default(),
+                &mut Effect::default(),
+                false,
+            )
+            .unwrap();
+        assert_eq!(reopened.support_index, 1);
+        assert_eq!(reopened.support.texts, texts);
+        reopened
+            .tick(
+                &mut store,
+                &mut engine,
+                clock(86400),
+                Environment::default(),
+                &mut Effect::default(),
+                false,
+            )
+            .unwrap();
+        assert_eq!(reopened.support_index, 0);
+        assert_ne!(reopened.support.texts, texts);
     }
     fn temp() -> tempfile::TempDir {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../work/pipeline-tests");
@@ -2275,6 +3141,27 @@ mod tests {
         p.generation.categories = vec!["lunch".into()];
         p.generation.batch_count = 5;
         assert!(batch_tasks(&p).iter().all(|(c, _)| *c == Category::Lunch));
+    }
+    #[test]
+    fn daily_preparation_finishes_exercise_and_followups_before_breaks() {
+        let mut p = Preferences::default();
+        p.desktop.time_zone = "UTC".into();
+        p.schedule.work_days = vec![6];
+        p.schedule.work_start = 600;
+        p.schedule.work_end = 660;
+        p.schedule.break_every = 30;
+        p.schedule.meals_enabled = false;
+        let tasks = daily_tasks(&p, clock(0), &[]).unwrap();
+        let last_exercise = tasks
+            .iter()
+            .rposition(|(c, _)| *c == Category::Exercise)
+            .unwrap();
+        let first_break = tasks
+            .iter()
+            .position(|(c, _)| *c == Category::Break)
+            .unwrap();
+        assert!(last_exercise < first_break);
+        assert!(preparation_priority("exercise") < preparation_priority("break"));
     }
     #[test]
     fn explicit_review_cancels_replacement_but_a_late_phrase_is_available_for_a_future_notice() {
