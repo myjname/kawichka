@@ -2,7 +2,7 @@
 # No model weights or CUDA are needed.
 imageio-ffmpeg==0.6.0
 cffi==2.1.1
-numpy==2.5.4
+numpy==2.5.5
 pillow==13.0.0
 pycparser==3.11
 soundfile==0.14.0
