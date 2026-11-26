@@ -13,7 +13,7 @@ serde_json.workspace = true
 sha2.workspace = true
 chrono.workspace = true
 zip = { version = "=0.6.6", default-features = false, features = ["deflate"] }
-minisign-verify = "=0.2.5"
+minisign-verify = "=0.3.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Storage_Packaging_Appx", "Win32_System_Registry", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
